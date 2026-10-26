@@ -44,11 +44,11 @@ class LocalVideoPlayer(
                     Log.i(TAG, "Video prepared. Size: ${mp.videoWidth}x${mp.videoHeight}, Duration: ${mp.duration}ms")
                     onVideoSizeChanged(mp.videoWidth, mp.videoHeight)
                     mp.start()
-                    isPlaying = true
+                    this@LocalVideoPlayer.isPlaying = true
                     startProgressTracker()
                 }
                 setOnCompletionListener {
-                    isPlaying = false
+                    this@LocalVideoPlayer.isPlaying = false
                     onCompletion()
                 }
                 setOnVideoSizeChangedListener { _, w, h ->
