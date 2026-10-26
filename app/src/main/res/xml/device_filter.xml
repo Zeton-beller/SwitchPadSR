@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Standard USB Video Class (UVC) capture card devices -->
+    <usb-device class="239" subclass="2" protocol="1" />
+    <usb-device class="14" /> <!-- USB_CLASS_VIDEO -->
+    
+    <!-- MacroSilicon MS2109 / MS2130 USB 3.0 / USB 2.0 Capture Cards -->
+    <usb-device vendor-id="21325" /> <!-- 0x534D -->
+    <usb-device vendor-id="7119" />  <!-- 0x1BCF -->
+    
+    <!-- Elgato HD60X / Cam Link -->
+    <usb-device vendor-id="4057" />  <!-- 0x0FD9 -->
+
+    <!-- Genki ShadowCast / ShadowCast 2 -->
+    <usb-device vendor-id="1204" />  <!-- 0x04B4 -->
+</resources>
