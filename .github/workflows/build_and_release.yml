@@ -39,12 +39,6 @@ jobs:
           mkdir -p release_assets
           cp app/build/outputs/apk/release/*.apk release_assets/SwitchPadSR-v1.0.0-release.apk
 
-      - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: SwitchPadSR-APK
-          path: release_assets/*.apk
-
       - name: Create GitHub Release with APK
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
