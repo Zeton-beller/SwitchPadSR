@@ -1,61 +1,76 @@
 package com.zet.switchpadsr.model
 
-enum class InputSourceMode {
-    CAPTURE_CARD,
-    LOCAL_VIDEO
-}
+enum class InputSourceMode { CAPTURE_CARD, LOCAL_VIDEO }
 
-enum class SRAlgorithmType(val id: Int, val displayName: String, val desc: String) {
-    SGSR_1_0(0, "高通 SGSR 1.0", "Adreno专有12-Tap单Pass边缘定向超分，极速0.2ms，适合3D写实游戏"),
-    ANIME4K(2, "Anime4K v4.0", "二次元线稿卷积重构与去噪，绝配塞尔达/马力欧等卡通画风"),
-    AMD_FSR(1, "AMD FSR 1.0", "EASU空间缩放 + RCAS对比自适应锐化，通用性极佳"),
-    RETRO_CRT(3, "复古 CRT 显像管", "经典光栅扫描线、荧光粉掩模与微弧曲率，怀旧像素首选"),
-    BICUBIC(4, "双三次滤波", "经典高质量平滑插值，作为无锐化基准参照")
+enum class SRAlgorithmType(val id: Int, val displayName: String, val tagline: String) {
+    SGSR(0, "SGSR 边缘定向", "骁龙 GSR 思路：沿边缘方向的 Lanczos2 重建，3D 写实游戏首选"),
+    FSR(1, "FSR 1.0", "EASU 边缘自适应放大 + RCAS 对比度自适应锐化，通用性强"),
+    ANIME4K(2, "Anime4K 风格", "双三次放大后做线条还原/细线加深/平坦区降噪，卡通画风"),
+    CRT(3, "复古 CRT", "扫描线 + 荧光粉栅格 + 微弧曲面，怀旧像素游戏"),
+    BICUBIC(4, "双三次", "Catmull-Rom 平滑插值，无锐化基准"),
+    OFF(5, "原画直通", "不做超分，仅双线性缩放到屏幕");
+
+    companion object {
+        fun fromId(id: Int) = entries.firstOrNull { it.id == id } ?: SGSR
+    }
 }
 
 enum class DisplayAspectMode(val id: Int, val displayName: String) {
-    LETTERBOX(0, "等比黑边 (推荐 1:1)"),
-    AMBILIGHT(1, "动态氛围光 (Ambilight)"),
-    CENTER_CROP(2, "居中裁剪 (填满3:2)"),
-    STRETCH(3, "强制拉伸")
+    LETTERBOX(0, "等比黑边"),
+    AMBILIGHT(1, "氛围光"),
+    CENTER_CROP(2, "填满裁剪"),
+    STRETCH(3, "拉伸");
+
+    companion object {
+        fun fromId(id: Int) = entries.firstOrNull { it.id == id } ?: LETTERBOX
+    }
 }
 
-enum class TargetResolutionPreset(val width: Int, val height: Int, val label: String) {
-    NATIVE_3_2K(3200, 1800, "原生 3.2K (3200×1800)"),
-    QHD_2K(2560, 1440, "2K 均衡 (2560×1440)"),
-    FHD_1080P(1920, 1080, "1080p 直通原画 (1:1)"),
-    CUSTOM(0, 0, "自定义倍率")
+/** height == 0 : follow the on-screen size of the video (default, no extra resampling). */
+enum class TargetResolutionPreset(val label: String, val height: Int) {
+    AUTO("跟随屏幕", 0),
+    P1080("1080p", 1080),
+    P1440("1440p", 1440),
+    P1800("1800p", 1800),
+    P2160("4K", 2160),
+    CUSTOM("自定义", -1);
+
+    companion object {
+        fun fromName(n: String?) = entries.firstOrNull { it.name == n } ?: AUTO
+    }
 }
 
 data class RenderSettings(
-    val inputMode: InputSourceMode = InputSourceMode.CAPTURE_CARD,
-    val algorithm: SRAlgorithmType = SRAlgorithmType.SGSR_1_0,
-    val targetResolution: TargetResolutionPreset = TargetResolutionPreset.NATIVE_3_2K,
-    val customScaleFactor: Float = 1.667f,
-    val displayMode: DisplayAspectMode = DisplayAspectMode.LETTERBOX,
+    val algorithm: SRAlgorithmType = SRAlgorithmType.SGSR,
+    val targetResolution: TargetResolutionPreset = TargetResolutionPreset.AUTO,
+    val customScaleFactor: Float = 1.5f,          // x source height, 1.0 .. 4.0
+    val displayMode: DisplayAspectMode = DisplayAspectMode.AMBILIGHT,
 
-    // SGSR 1.0 Parameters
-    val sgsrThreshold: Float = 4.0f,      // 1.0 to 16.0
-    val sgsrSharpness: Float = 2.0f,      // 1.0 to 2.0
+    // SGSR
+    val sgsrThreshold: Float = 4.0f,              // 1 .. 16
+    val sgsrSharpness: Float = 1.5f,              // 1 .. 2
     val sgsrUseDirection: Boolean = true,
 
-    // AMD FSR 1.0 Parameters
-    val fsrSharpness: Float = 0.8f,       // 0.0 to 1.0
+    // FSR
+    val fsrSharpness: Float = 0.8f,               // 0 .. 1
     val fsrDering: Boolean = true,
 
-    // Anime4K Parameters
-    val anime4kStrength: Float = 1.0f,    // 0.5 to 2.0
-    val anime4kMode: Int = 0,             // 0: Mode A, 1: Mode B, 2: Mode C
+    // Anime4K style
+    val anime4kStrength: Float = 1.0f,            // 0.5 .. 2
+    val anime4kMode: Int = 0,                     // 0 A, 1 B, 2 C
 
-    // CRT Parameters
-    val crtScanline: Float = 0.35f,       // 0.0 to 1.0
-    val crtCurvature: Float = 0.04f,      // 0.0 to 0.3
-    val crtMask: Float = 0.25f,           // 0.0 to 1.0
+    // CRT
+    val crtScanline: Float = 0.35f,
+    val crtCurvature: Float = 0.04f,
+    val crtMask: Float = 0.25f,
 
-    // Split-screen A/B comparison
+    // A/B compare
     val splitScreenEnabled: Boolean = false,
     val splitPosition: Float = 0.5f,
 
-    // HUD Display
-    val showHud: Boolean = true
+    // misc
+    val showHud: Boolean = true,
+    val captureAudio: Boolean = true,
+    val audioVolume: Float = 1.0f,
+    val loopVideo: Boolean = true
 )

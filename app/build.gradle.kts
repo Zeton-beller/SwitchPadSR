@@ -12,28 +12,16 @@ android {
         applicationId = "com.zet.switchpadsr"
         minSdk = 28
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        externalNativeBuild {
-            cmake {
-                cppFlags += "-std=c++20 -O3 -ffast-math"
-                arguments += "-DANDROID_STL=c++_shared"
-            }
-        }
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
     }
 
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
-        }
-    }
 
     buildTypes {
         release {
@@ -75,4 +63,6 @@ dependencies {
     implementation(libs.androidx.compose.material.icons)
 
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.uvcandroid)
 }

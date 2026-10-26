@@ -1,15 +1,9 @@
-#!/data/data/com.termux/files/usr/bin/env bash
+#!/usr/bin/env bash
+# Validates every GLSL ES 3.00 shader with glslangValidator.
 set -e
-
-echo "=== Verifying and compiling all Vulkan GLSL shaders to SPIR-V ==="
-mkdir -p build/spv
-
-SHADER_DIR="app/src/main/shaders"
-for shader in "$SHADER_DIR"/*.vert "$SHADER_DIR"/*.frag; do
-    name=$(basename "$shader")
-    echo "  Compiling $name -> build/spv/$name.spv"
-    glslangValidator -V "$shader" -o "build/spv/$name.spv"
+cd "$(dirname "$0")/.."
+fail=0
+for f in app/src/main/assets/shaders/*.vert app/src/main/assets/shaders/*.frag; do
+  if out=$(glslangValidator -S "${f##*.}" "$f" 2>&1); then echo "OK   $f"; else echo "FAIL $f"; echo "$out"; fail=1; fi
 done
-
-echo "=== ALL SHADERS COMPILED TO SPIR-V WITH ZERO ERRORS ==="
-ls -lh build/spv
+exit $fail
