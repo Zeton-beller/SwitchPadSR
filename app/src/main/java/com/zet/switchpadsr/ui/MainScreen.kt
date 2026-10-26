@@ -72,7 +72,13 @@ fun MainScreen(
                 durationMs = duration
             },
             onVideoSizeChanged = { w, h ->
-                NativeEngine.nativeSetTargetResolution(w, h)
+                if (NativeEngine.isLoaded) {
+                    try {
+                        NativeEngine.nativeSetTargetResolution(w, h)
+                    } catch (e: Throwable) {
+                        Log.w("SwitchPadSR-Main", "nativeSetTargetResolution failed", e)
+                    }
+                }
             },
             onCompletion = {
                 isVideoPlaying = false
@@ -109,15 +115,25 @@ fun MainScreen(
 
     // Lifecycle registration
     DisposableEffect(Unit) {
-        usbManager.register()
-        if (settings.inputMode == InputSourceMode.CAPTURE_CARD) {
-            usbManager.scanAndConnect()
+        try {
+            usbManager.register()
+            if (settings.inputMode == InputSourceMode.CAPTURE_CARD) {
+                usbManager.scanAndConnect()
+            }
+        } catch (e: Throwable) {
+            Log.e("SwitchPadSR-Main", "Error starting UsbCaptureManager", e)
         }
         onDispose {
-            usbManager.unregister()
-            usbManager.disconnect()
-            videoPlayer.release()
-            NativeEngine.nativeDestroy()
+            try {
+                usbManager.unregister()
+                usbManager.disconnect()
+                videoPlayer.release()
+                if (NativeEngine.isLoaded) {
+                    NativeEngine.nativeDestroy()
+                }
+            } catch (e: Throwable) {
+                Log.e("SwitchPadSR-Main", "Error disposing MainScreen", e)
+            }
         }
     }
 
@@ -125,56 +141,69 @@ fun MainScreen(
     LaunchedEffect(Unit) {
         val metricsArray = FloatArray(5)
         while (true) {
-            NativeEngine.nativeGetMetrics(metricsArray)
-            fps = metricsArray[0]
-            gpuTimeMs = metricsArray[1]
-            latencyMs = metricsArray[2]
+            if (NativeEngine.isLoaded) {
+                try {
+                    NativeEngine.nativeGetMetrics(metricsArray)
+                    fps = metricsArray[0]
+                    gpuTimeMs = metricsArray[1]
+                    latencyMs = metricsArray[2]
+                } catch (e: Throwable) {
+                    // Ignore transient metrics errors
+                }
+            }
             delay(500)
         }
     }
 
     // Sync settings changes to native engine
     LaunchedEffect(settings) {
-        NativeEngine.nativeSetAlgorithm(settings.algorithm.id)
-        NativeEngine.nativeSetDisplayMode(settings.displayMode.id)
+        if (!NativeEngine.isLoaded) return@LaunchedEffect
+        try {
+            NativeEngine.nativeSetAlgorithm(settings.algorithm.id)
+            NativeEngine.nativeSetDisplayMode(settings.displayMode.id)
 
-        val targetW = when (settings.targetResolution) {
-            TargetResolutionPreset.NATIVE_3_2K -> 3200
-            TargetResolutionPreset.QHD_2K -> 2560
-            TargetResolutionPreset.FHD_1080P -> 1920
-            TargetResolutionPreset.CUSTOM -> (1920 * settings.customScaleFactor).toInt()
-        }
-        val targetH = when (settings.targetResolution) {
-            TargetResolutionPreset.NATIVE_3_2K -> 1800
-            TargetResolutionPreset.QHD_2K -> 1440
-            TargetResolutionPreset.FHD_1080P -> 1080
-            TargetResolutionPreset.CUSTOM -> (1080 * settings.customScaleFactor).toInt()
-        }
-        NativeEngine.nativeSetTargetResolution(targetW, targetH)
+            val targetW = when (settings.targetResolution) {
+                TargetResolutionPreset.NATIVE_3_2K -> 3200
+                TargetResolutionPreset.QHD_2K -> 2560
+                TargetResolutionPreset.FHD_1080P -> 1920
+                TargetResolutionPreset.CUSTOM -> (1920 * settings.customScaleFactor).toInt()
+            }
+            val targetH = when (settings.targetResolution) {
+                TargetResolutionPreset.NATIVE_3_2K -> 1800
+                TargetResolutionPreset.QHD_2K -> 1440
+                TargetResolutionPreset.FHD_1080P -> 1080
+                TargetResolutionPreset.CUSTOM -> (1080 * settings.customScaleFactor).toInt()
+            }
+            NativeEngine.nativeSetTargetResolution(targetW, targetH)
 
-        NativeEngine.nativeSetSGSRParams(
-            settings.sgsrThreshold,
-            settings.sgsrSharpness,
-            settings.sgsrUseDirection
-        )
-        NativeEngine.nativeSetFSRParams(
-            settings.fsrSharpness,
-            settings.fsrDering
-        )
-        NativeEngine.nativeSetAnime4KParams(
-            settings.anime4kStrength,
-            settings.anime4kMode
-        )
-        NativeEngine.nativeSetCRTParams(
-            settings.crtScanline,
-            settings.crtCurvature,
-            settings.crtMask
-        )
-        NativeEngine.nativeSetSplitScreen(
-            settings.splitScreenEnabled,
-            settings.splitPosition
-        )
+            NativeEngine.nativeSetSGSRParams(
+                settings.sgsrThreshold,
+                settings.sgsrSharpness,
+                settings.sgsrUseDirection
+            )
+            NativeEngine.nativeSetFSRParams(
+                settings.fsrSharpness,
+                settings.fsrDering
+            )
+            NativeEngine.nativeSetAnime4KParams(
+                settings.anime4kStrength,
+                settings.anime4kMode
+            )
+            NativeEngine.nativeSetCRTParams(
+                settings.crtScanline,
+                settings.crtCurvature,
+                settings.crtMask
+            )
+            NativeEngine.nativeSetSplitScreen(
+                settings.splitScreenEnabled,
+                settings.splitPosition
+            )
+        } catch (e: Throwable) {
+            Log.e("SwitchPadSR-Main", "Failed to sync settings to native engine", e)
+        }
     }
+
+    var isEngineInitialized by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -193,19 +222,31 @@ fun MainScreen(
                     holder.addCallback(object : SurfaceHolder.Callback {
                         override fun surfaceCreated(holder: SurfaceHolder) {
                             videoPlayerSurface = holder.surface
-                            NativeEngine.nativeInit(holder.surface, width, height)
-                            if (settings.inputMode == InputSourceMode.CAPTURE_CARD) {
-                                usbManager.scanAndConnect()
-                            }
+                            // Defer Vulkan initialization to surfaceChanged when dimensions are valid
                         }
 
                         override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) {
-                            NativeEngine.nativeSetTargetResolution(w, h)
+                            if (w <= 0 || h <= 0) return
+                            videoPlayerSurface = holder.surface
+                            if (NativeEngine.isLoaded) {
+                                if (!isEngineInitialized) {
+                                    val ok = NativeEngine.init(holder.surface, w, h)
+                                    isEngineInitialized = ok
+                                    if (ok && settings.inputMode == InputSourceMode.CAPTURE_CARD) {
+                                        usbManager.scanAndConnect()
+                                    }
+                                } else {
+                                    NativeEngine.nativeSetTargetResolution(w, h)
+                                }
+                            }
                         }
 
                         override fun surfaceDestroyed(holder: SurfaceHolder) {
                             videoPlayerSurface = null
-                            NativeEngine.nativeDestroy()
+                            if (isEngineInitialized && NativeEngine.isLoaded) {
+                                NativeEngine.nativeDestroy()
+                                isEngineInitialized = false
+                            }
                         }
                     })
                 }

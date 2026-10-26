@@ -27,6 +27,7 @@ bool AudioEngine::start(int sampleRate, int channels) {
 
     AAudioStreamBuilder_setDirection(builder, AAUDIO_DIRECTION_OUTPUT);
     AAudioStreamBuilder_setPerformanceMode(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
+    // Try exclusive low latency first; fallback to shared if device rejects exclusive
     AAudioStreamBuilder_setSharingMode(builder, AAUDIO_SHARING_MODE_EXCLUSIVE);
     AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_I16);
     AAudioStreamBuilder_setChannelCount(builder, channels);
@@ -34,6 +35,11 @@ bool AudioEngine::start(int sampleRate, int channels) {
     AAudioStreamBuilder_setDataCallback(builder, aaudioDataCallback, this);
 
     aaudio_result_t result = AAudioStreamBuilder_openStream(builder, &stream_);
+    if (result != AAUDIO_OK) {
+        LOGI("Exclusive AAudio mode unavailable (%s), trying SHARED mode fallback", AAudio_convertResultToText(result));
+        AAudioStreamBuilder_setSharingMode(builder, AAUDIO_SHARING_MODE_SHARED);
+        result = AAudioStreamBuilder_openStream(builder, &stream_);
+    }
     AAudioStreamBuilder_delete(builder);
 
     if (result != AAUDIO_OK) {

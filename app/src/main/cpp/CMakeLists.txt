@@ -36,3 +36,7 @@ target_link_libraries(switchpadsr_engine
     ${vulkan-lib}
     ${aaudio-lib}
 )
+
+# Enforce 16KB page size alignment for Android 15/16/17 (Snapdragon 8 Elite / Oryon)
+target_link_options(switchpadsr_engine PRIVATE "-Wl,-z,max-page-size=16384")
+

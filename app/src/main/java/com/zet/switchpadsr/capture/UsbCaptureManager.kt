@@ -27,6 +27,7 @@ class UsbCaptureManager(
     private val usbManager: UsbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
     private var activeConnection: UsbDeviceConnection? = null
     private var activeDevice: UsbDevice? = null
+    private var isReceiverRegistered: Boolean = false
 
     private val usbReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -58,50 +59,77 @@ class UsbCaptureManager(
     }
 
     fun register() {
-        val filter = IntentFilter().apply {
-            addAction(ACTION_USB_PERMISSION)
-            addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
-            addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(usbReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            context.registerReceiver(usbReceiver, filter)
+        if (isReceiverRegistered) return
+        try {
+            val filter = IntentFilter().apply {
+                addAction(ACTION_USB_PERMISSION)
+                addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+                addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                // On Android 14+ (API 34+ / Android 17), system broadcasts require RECEIVER_EXPORTED
+                context.registerReceiver(usbReceiver, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                context.registerReceiver(usbReceiver, filter)
+            }
+            isReceiverRegistered = true
+            Log.i(TAG, "UsbCaptureManager receiver registered successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to register USB receiver with RECEIVER_EXPORTED, trying fallback", e)
+            try {
+                val fallbackFilter = IntentFilter(ACTION_USB_PERMISSION)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    context.registerReceiver(usbReceiver, fallbackFilter, Context.RECEIVER_NOT_EXPORTED)
+                } else {
+                    context.registerReceiver(usbReceiver, fallbackFilter)
+                }
+                isReceiverRegistered = true
+                Log.i(TAG, "UsbCaptureManager fallback receiver registered")
+            } catch (ex: Exception) {
+                Log.e(TAG, "Failed to register fallback USB receiver", ex)
+            }
         }
     }
 
     fun unregister() {
+        if (!isReceiverRegistered) return
         try {
             context.unregisterReceiver(usbReceiver)
         } catch (e: Exception) {
-            Log.e(TAG, "Error unregistering receiver", e)
+            Log.w(TAG, "Error unregistering receiver", e)
+        } finally {
+            isReceiverRegistered = false
         }
     }
 
     fun scanAndConnect() {
-        val deviceList = usbManager.deviceList
-        Log.i(TAG, "Scanning USB devices. Found ${deviceList.size} devices.")
+        try {
+            val deviceList = usbManager.deviceList
+            Log.i(TAG, "Scanning USB devices. Found ${deviceList.size} devices.")
 
-        for ((_, device) in deviceList) {
-            if (isUvcDevice(device)) {
-                Log.i(TAG, "Detected UVC Capture Card: ${device.deviceName} (Vendor: ${device.vendorId}, Product: ${device.productId})")
-                if (usbManager.hasPermission(device)) {
-                    connectDevice(device)
-                } else {
-                    val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            for ((_, device) in deviceList) {
+                if (isUvcDevice(device)) {
+                    Log.i(TAG, "Detected UVC Capture Card: ${device.deviceName} (Vendor: ${device.vendorId}, Product: ${device.productId})")
+                    if (usbManager.hasPermission(device)) {
+                        connectDevice(device)
                     } else {
-                        PendingIntent.FLAG_UPDATE_CURRENT
+                        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                        } else {
+                            PendingIntent.FLAG_UPDATE_CURRENT
+                        }
+                        val permissionIntent = PendingIntent.getBroadcast(
+                            context, 0, Intent(ACTION_USB_PERMISSION), flags
+                        )
+                        usbManager.requestPermission(device, permissionIntent)
                     }
-                    val permissionIntent = PendingIntent.getBroadcast(
-                        context, 0, Intent(ACTION_USB_PERMISSION), flags
-                    )
-                    usbManager.requestPermission(device, permissionIntent)
+                    return
                 }
-                return
             }
+            Log.i(TAG, "No UVC Capture Card detected at this moment.")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during USB scanAndConnect", e)
         }
-        onError("未检测到兼容的UVC采集卡，请插入Switch采集卡并开启底座电源")
     }
 
     private fun isUvcDevice(device: UsbDevice): Boolean {

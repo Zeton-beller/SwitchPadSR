@@ -65,11 +65,8 @@ void UVCCapture::captureWorkerThread(int fd) {
                 videoCallback_(frameBuffer.data(), width_, height_, format_);
             }
         } else {
-            // Emulate frame rate pacing if waiting or hardware in negotiation
-            std::this_thread::sleep_for(std::chrono::microseconds(1000000 / fps_));
-            if (videoCallback_) {
-                videoCallback_(frameBuffer.data(), width_, height_, format_);
-            }
+            // Prevent CPU spin on read error or timeout
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
 }

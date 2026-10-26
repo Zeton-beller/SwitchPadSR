@@ -1,11 +1,41 @@
 package com.zet.switchpadsr.engine
 
+import android.util.Log
 import android.view.Surface
 import java.nio.ByteBuffer
 
 object NativeEngine {
+    private const val TAG = "SwitchPadSR-Native"
+
+    var isLoaded: Boolean = false
+        private set
+
+    var loadError: String? = null
+        private set
+
     init {
-        System.loadLibrary("switchpadsr_engine")
+        try {
+            System.loadLibrary("switchpadsr_engine")
+            isLoaded = true
+            Log.i(TAG, "Native library 'switchpadsr_engine' loaded successfully")
+        } catch (e: Throwable) {
+            loadError = e.message ?: e.toString()
+            Log.e(TAG, "FATAL: Failed to load 'switchpadsr_engine' native library", e)
+            isLoaded = false
+        }
+    }
+
+    fun init(surface: Surface, width: Int, height: Int): Boolean {
+        if (!isLoaded) {
+            Log.e(TAG, "Cannot init NativeEngine: native library not loaded")
+            return false
+        }
+        return try {
+            nativeInit(surface, width, height)
+        } catch (e: Throwable) {
+            Log.e(TAG, "nativeInit threw exception", e)
+            false
+        }
     }
 
     external fun nativeInit(surface: Surface, width: Int, height: Int): Boolean

@@ -37,38 +37,34 @@ jobs:
       - name: Prepare Release Artifacts
         run: |
           mkdir -p release_assets
-          cp app/build/outputs/apk/release/*.apk release_assets/SwitchPadSR-v1.0.0-release.apk
+          cp app/build/outputs/apk/release/*.apk release_assets/SwitchPadSR-v1.0.1-release.apk
 
       - name: Create GitHub Release with APK
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         with:
-          tag_name: v1.0.0
-          name: "SwitchPad SR v1.0.0 (Release)"
+          tag_name: v1.0.1
+          name: "SwitchPad SR v1.0.1 (Hotfix for Android 17 / HyperOS)"
           body: |
-            ### 🎮 SwitchPad SR 官方发布版 v1.0.0
-            
-            专为高通骁龙 8 至尊版（Adreno 830 GPU）与小米平板 8 Pro（3.2K 3:2 屏幕）打造的超低延迟 Switch 采集卡接收与多算法实时超分辨率视频播放器！
-            
-            #### 🌟 核心特性：
-            1. **双输入模式无缝切换**：
-               - **Switch 采集卡模式**：原生直连 USB 3.0 / USB 2.0 UVC 采集卡，零拷贝接收 1080p60 YUY2/NV12 原始码流；
-               - **普通本地视频播放模式**：硬件解码本地 MP4/MKV/WebM 视频，无缝复用超分管线与参数微调！
-            2. **Adreno 830 专有多算法超分辨率引擎**：
-               - **高通 SGSR 1.0**：单 Pass 12-Tap 边缘定向锐化，极速 0.22ms 耗时，适合写实 3D 游戏；
-               - **Anime4K v4.0**：二次元线稿卷积重构与去阶，绝配《塞尔达传说》、《马力欧》等卡通画风；
-               - **AMD FSR 1.0**：EASU + RCAS 动态对比自适应锐化；
-               - **复古 CRT 显像管**：经典扫描线、荧光粉栅格与微弧曲面，还原复古掌机街机质感；
-               - **双三次插值**：纯净无锐化基准模式。
-            3. **3:2 屏幕画幅排版与 Ambilight 动态氛围光**：
-               - 等比居中黑边 (Letterbox 1:1) / 动态氛围光 (Ambilight) / 居中裁剪 (Crop) / 强制拉伸；
-            4. **全细节参数实时微调控制面板**：
-               - 锐化强度、边缘灵敏度、定向抗锯齿开关、去振铃伪影、CRT 扫描线曲率等细节自由调校；
-               - 目标分辨率自由设定（3.2K / 2K / 1080p / 自定义倍率）；
-               - 画质 A/B 分屏对比拖拽滑块；
-            5. **极速高刷与超低输入延迟**：
-               - 锁定 144Hz 面板刷新率与 Vulkan Mailbox 交换链，端到端延迟仅 25~35ms！
-               - 独占 AAudio 引擎，音频延迟 <8ms。
+            ### 🎮 SwitchPad SR 官方发布版 v1.0.1 (Android 17 / HyperOS 闪退紧急修复版)
+
+            专为高通骁龙 8 至尊版（Adreno 830 GPU）与小米平板 8 Pro（3.2K 3:2 屏幕，Android 17）深度定制与架构加固。
+
+            #### 🛠️ v1.0.1 关键问题修复 (Bugfixes & Hardening):
+            1. **修复 Android 14~17 BroadcastReceiver 致命 SecurityException 闪退**：
+               - 将 USB 广播监听重构为 API 34+ 规范：系统事件采用 `RECEIVER_EXPORTED`，权限事件采用 `RECEIVER_NOT_EXPORTED`，并增加双重 fallback try-catch，杜绝首屏闪退。
+            2. **彻底解决 16KB Page Size 内存分页兼容性拦截**：
+               - 在 CMake 构建链路中强行注入 `-Wl,-z,max-page-size=16384` 标志，确保 native ELF 动态库物理对齐 16KB，彻底解决 Android 15/16/17 对 4KB ELF 的强制 dlopen 拦截。
+            3. **修复 SurfaceView 零尺寸导致的 Vulkan 交换链崩溃**：
+               - 重构 Surface 生命周期，将 `NativeEngine.nativeInit` 延迟至 `surfaceChanged` 并在获取真实物理宽高后安全初始化；
+               - 增加 ANativeWindow 尺寸物理兜底与 Extent Clamping，避免 0x0 尺寸导致的 `VK_ERROR_INITIALIZATION_FAILED`。
+            4. **修复 Vulkan 无管线调用 vkCmdDraw 导致的段错误 (SIGSEGV)**：
+               - 严密拦截未绑定有效管线时的绘制调用，防止 Adreno 驱动内部空指针异常；
+               - 将合成通道 Composite Alpha 由硬编码修正为动态匹配（优先 `VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR`），完美适配小米平板 8 Pro 窗口合成规范。
+            5. **消除 UVC 空转推流异常**：
+               - 消除 USB 未连接时的死循环空推流，避免无意义的驱动重试与崩溃。
+            6. **加固 Display 与 WindowInsets 异常捕获**：
+               - 彻底防护 `onCreate` 阶段 `this.display` 在特定 HyperOS 桌面模式下可能抛出的 `IllegalStateException`。
           draft: false
           prerelease: false
           files: release_assets/*.apk

@@ -5,8 +5,8 @@
 
     <!-- Hardware requirements -->
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
-    <uses-feature android:name="android.hardware.vulkan.level" android:version="1" android:required="true" />
-    <uses-feature android:name="android.hardware.vulkan.version" android:version="0x403000" android:required="true" />
+    <uses-feature android:name="android.hardware.vulkan.level" android:version="1" android:required="false" />
+    <uses-feature android:name="android.hardware.vulkan.version" android:version="0x400000" android:required="false" />
 
     <!-- Permissions -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />

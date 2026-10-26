@@ -23,9 +23,27 @@ VulkanRenderer::~VulkanRenderer() {
 }
 
 bool VulkanRenderer::init(ANativeWindow* window, int width, int height) {
+    if (!window) {
+        LOGE("VulkanRenderer::init: ANativeWindow is null");
+        return false;
+    }
     window_ = window;
+
+    if (width <= 0 || height <= 0) {
+        int winW = ANativeWindow_getWidth(window);
+        int winH = ANativeWindow_getHeight(window);
+        if (winW > 0 && winH > 0) {
+            width = winW;
+            height = winH;
+        } else {
+            width = 3200;
+            height = 2136;
+        }
+    }
+
     screenWidth_ = width;
     screenHeight_ = height;
+    swapchainExtent_ = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
 
     LOGI("Initializing VulkanRenderer: %dx%d for Adreno 830", width, height);
 
@@ -66,10 +84,18 @@ void VulkanRenderer::destroy() {
             if (iv != VK_NULL_HANDLE) vkDestroyImageView(device_, iv, nullptr);
         }
 
-        if (renderPass_ != VK_NULL_HANDLE) vkDestroyRenderPass(device_, renderPass_, nullptr);
-        if (swapchain_ != VK_NULL_HANDLE) vkDestroySwapchainKHR(device_, swapchain_, nullptr);
-        if (surface_ != VK_NULL_HANDLE) vkDestroySurfaceKHR(instance_, surface_, nullptr);
-        if (commandPool_ != VK_NULL_HANDLE) vkDestroyCommandPool(device_, commandPool_, nullptr);
+        if (renderPass_ != VK_NULL_HANDLE) { vkDestroyRenderPass(device_, renderPass_, nullptr); renderPass_ = VK_NULL_HANDLE; }
+        if (swapchain_ != VK_NULL_HANDLE) { vkDestroySwapchainKHR(device_, swapchain_, nullptr); swapchain_ = VK_NULL_HANDLE; }
+        if (surface_ != VK_NULL_HANDLE) { vkDestroySurfaceKHR(instance_, surface_, nullptr); surface_ = VK_NULL_HANDLE; }
+        if (commandPool_ != VK_NULL_HANDLE) { vkDestroyCommandPool(device_, commandPool_, nullptr); commandPool_ = VK_NULL_HANDLE; }
+
+        swapchainFramebuffers_.clear();
+        swapchainImageViews_.clear();
+        swapchainImages_.clear();
+        imageAvailableSemaphores_.clear();
+        renderFinishedSemaphores_.clear();
+        inFlightFences_.clear();
+        commandBuffers_.clear();
 
         vkDestroyDevice(device_, nullptr);
         device_ = VK_NULL_HANDLE;
@@ -173,37 +199,86 @@ bool VulkanRenderer::createSwapchain() {
     };
 
     if (vkCreateAndroidSurfaceKHR(instance_, &surfaceCreateInfo, nullptr, &surface_) != VK_SUCCESS) {
+        LOGE("Failed to create Android surface KHR");
         return false;
     }
 
-    // Use MAILBOX mode for lowest display latency (<7ms at 144Hz)
-    VkPresentModeKHR presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+    VkSurfaceCapabilitiesKHR capabilities;
+    if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice_, surface_, &capabilities) != VK_SUCCESS) {
+        LOGE("Failed to get physical device surface capabilities");
+        return false;
+    }
+
+    VkExtent2D actualExtent = {static_cast<uint32_t>(screenWidth_), static_cast<uint32_t>(screenHeight_)};
+    if (capabilities.currentExtent.width != 0xFFFFFFFF && capabilities.currentExtent.width > 0) {
+        actualExtent = capabilities.currentExtent;
+    } else {
+        actualExtent.width = std::max(capabilities.minImageExtent.width,
+                                      std::min(capabilities.maxImageExtent.width, actualExtent.width));
+        actualExtent.height = std::max(capabilities.minImageExtent.height,
+                                       std::min(capabilities.maxImageExtent.height, actualExtent.height));
+    }
+    screenWidth_ = static_cast<int>(actualExtent.width);
+    screenHeight_ = static_cast<int>(actualExtent.height);
+    swapchainExtent_ = actualExtent;
+
+    VkCompositeAlphaFlagBitsKHR compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    if (capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) {
+        compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    } else if (capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR) {
+        compositeAlpha = VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
+    } else if (capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR) {
+        compositeAlpha = VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR;
+    }
+
+    uint32_t imageCount = capabilities.minImageCount + 1;
+    if (capabilities.maxImageCount > 0 && imageCount > capabilities.maxImageCount) {
+        imageCount = capabilities.maxImageCount;
+    }
+
+    // Query supported present modes, preferring Mailbox for ultra low latency
+    uint32_t presentModeCount = 0;
+    vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice_, surface_, &presentModeCount, nullptr);
+    std::vector<VkPresentModeKHR> presentModes(presentModeCount);
+    if (presentModeCount > 0) {
+        vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice_, surface_, &presentModeCount, presentModes.data());
+    }
+
+    VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    for (const auto& mode : presentModes) {
+        if (mode == VK_PRESENT_MODE_MAILBOX_KHR) {
+            presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+            break;
+        }
+    }
 
     VkSwapchainCreateInfoKHR swapchainCreateInfo = {
         .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
         .surface = surface_,
-        .minImageCount = 3, // Triple buffering
+        .minImageCount = imageCount,
         .imageFormat = swapchainFormat_,
         .imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
-        .imageExtent = {static_cast<uint32_t>(screenWidth_), static_cast<uint32_t>(screenHeight_)},
+        .imageExtent = swapchainExtent_,
         .imageArrayLayers = 1,
         .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
         .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
-        .preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
-        .compositeAlpha = VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
+        .preTransform = (capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) ?
+                        VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR : capabilities.currentTransform,
+        .compositeAlpha = compositeAlpha,
         .presentMode = presentMode,
         .clipped = VK_TRUE
     };
 
     if (vkCreateSwapchainKHR(device_, &swapchainCreateInfo, nullptr, &swapchain_) != VK_SUCCESS) {
-        // Fallback to FIFO
+        // Fallback to standard FIFO
         swapchainCreateInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
         if (vkCreateSwapchainKHR(device_, &swapchainCreateInfo, nullptr, &swapchain_) != VK_SUCCESS) {
+            LOGE("Failed to create swapchain fallback FIFO");
             return false;
         }
     }
 
-    uint32_t imageCount = 0;
+    imageCount = 0;
     vkGetSwapchainImagesKHR(device_, swapchain_, &imageCount, nullptr);
     swapchainImages_.resize(imageCount);
     vkGetSwapchainImagesKHR(device_, swapchain_, &imageCount, swapchainImages_.data());
@@ -327,7 +402,7 @@ bool VulkanRenderer::createSyncObjects() {
 }
 
 void VulkanRenderer::renderFrame() {
-    if (!initialized_) return;
+    if (!initialized_ || swapchain_ == VK_NULL_HANDLE || swapchainFramebuffers_.empty()) return;
 
     auto startGpu = std::chrono::high_resolution_clock::now();
 
@@ -381,8 +456,11 @@ void VulkanRenderer::renderFrame() {
     };
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-    // Draw full-screen triangle covering the screen (vertex generated on GPU)
-    vkCmdDraw(cmd, 3, 1, 0, 0);
+    // Only draw when a valid graphics pipeline is bound to avoid driver crash
+    if (pipelineComposition_ != VK_NULL_HANDLE) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineComposition_);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+    }
 
     vkCmdEndRenderPass(cmd);
     vkEndCommandBuffer(cmd);
