@@ -1,5 +1,6 @@
 package com.zet.switchpadsr.ui
 
+import android.util.Log
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.activity.compose.rememberLauncherForActivityResult
