@@ -1,11 +1,16 @@
 #version 300 es
 precision highp float;
 precision highp sampler2D;
-// Catmull-Rom bicubic using 4 bilinear taps.
+// Catmull-Rom 4-tap fast bicubic upscaler.
+// Also computes and stores the official Anime4K Pass-1 Sobel gradient magnitude
+// pow(norm, 0.7) in the alpha channel (o_color.a) for downstream Anime4K Thin_HQ warping.
 uniform sampler2D u_tex;
 uniform vec2 u_inSize;
 in vec2 v_uv;
 out vec4 o_color;
+
+float lumaA4K(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+
 vec4 cubic(float v) {
     vec4 n = vec4(1.0, 2.0, 3.0, 4.0) - v;
     vec4 s = n * n * n;
@@ -15,6 +20,7 @@ vec4 cubic(float v) {
     float w = 6.0 - x - y - z;
     return vec4(x, y, z, w) * (1.0 / 6.0);
 }
+
 void main() {
     vec2 inv = 1.0 / u_inSize;
     vec2 pixel = v_uv * u_inSize - 0.5;
@@ -31,6 +37,22 @@ void main() {
     vec3 s3 = texture(u_tex, vec2(off.y, off.w) * inv).rgb;
     float sx = s.x / (s.x + s.y);
     float sy = s.z / (s.z + s.w);
-    vec3 col = mix(mix(s3, s2, sx), mix(s1, s0, sx), sy);
-    o_color = vec4(clamp(col, 0.0, 1.0), 1.0);
+    vec3 col = clamp(mix(mix(s3, s2, sx), mix(s1, s0, sx), sy), 0.0, 1.0);
+
+    // Official Anime4K_Thin_HQ Sobel magnitude (lines 44-76 of Anime4K_Thin_HQ.glsl)
+    float l00 = lumaA4K(texture(u_tex, v_uv + vec2(-inv.x, -inv.y)).rgb);
+    float l10 = lumaA4K(texture(u_tex, v_uv + vec2( 0.0,   -inv.y)).rgb);
+    float l20 = lumaA4K(texture(u_tex, v_uv + vec2( inv.x, -inv.y)).rgb);
+    float l01 = lumaA4K(texture(u_tex, v_uv + vec2(-inv.x,  0.0)).rgb);
+    float l21 = lumaA4K(texture(u_tex, v_uv + vec2( inv.x,  0.0)).rgb);
+    float l02 = lumaA4K(texture(u_tex, v_uv + vec2(-inv.x,  inv.y)).rgb);
+    float l12 = lumaA4K(texture(u_tex, v_uv + vec2( 0.0,    inv.y)).rgb);
+    float l22 = lumaA4K(texture(u_tex, v_uv + vec2( inv.x,  inv.y)).rgb);
+
+    float xgrad = ((l20 - l00) + 2.0 * (l21 - l01) + (l22 - l02)) / 8.0;
+    float ygrad = ((l02 + 2.0 * l12 + l22) - (l00 + 2.0 * l10 + l20)) / 8.0;
+    float norm = sqrt(xgrad * xgrad + ygrad * ygrad);
+    float edgeMag = clamp(pow(norm, 0.7), 0.0, 1.0);
+
+    o_color = vec4(col, edgeMag);
 }

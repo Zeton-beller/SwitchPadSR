@@ -62,7 +62,15 @@ class SrRenderer(
 
     fun setSourceSize(w: Int, h: Int) {
         if (w <= 0 || h <= 0) return
-        if (srcW.getAndSet(w) != w || srcH.getAndSet(h) != h) glView?.requestRender()
+        val wChanged = srcW.getAndSet(w) != w
+        val hChanged = srcH.getAndSet(h) != h
+        if (wChanged || hChanged) {
+            glView?.queueEvent {
+                surfaceTexture?.setDefaultBufferSize(w, h)
+                needsProcess = true
+            }
+            glView?.requestRender()
+        }
     }
 
     // ---- GL-thread state ----
@@ -333,11 +341,13 @@ class SrRenderer(
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, inFbo.tex)
         GLES30.glUniform1i(p.loc("u_raw"), 1)
+        GLES30.glUniform2f(p.loc("u_srSize"), max(resultW, inFbo.w).toFloat(), max(resultH, inFbo.h).toFloat())
         GLES30.glUniform2f(p.loc("u_screen"), screenW.toFloat(), screenH.toFloat())
         GLES30.glUniform4f(p.loc("u_rect"), rect[0], rect[1], rect[2], rect[3])
         GLES30.glUniform1i(p.loc("u_ambient"), if (s.displayMode == DisplayAspectMode.AMBILIGHT) 1 else 0)
         GLES30.glUniform1i(p.loc("u_split"), if (s.splitScreenEnabled) 1 else 0)
         GLES30.glUniform1f(p.loc("u_splitPos"), s.splitPosition)
+        GLES30.glUniform1f(p.loc("u_zoom"), s.zoomFactor)
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
     }

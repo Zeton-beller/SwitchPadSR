@@ -118,9 +118,11 @@ private fun ViewTab(vm: AppViewModel) {
     val st = vm.stats
     if (st.outW > 0) Text("当前输出 ${st.outW}×${st.outH}", color = TextLow, fontSize = 11.sp)
 
-    SectionTitle("A/B 对比")
-    ToggleRow("分屏对比", "左：超分结果　右：原画", s.splitScreenEnabled) { v -> vm.update { it.copy(splitScreenEnabled = v) } }
+    SectionTitle("A/B 对比与细节放大")
+    ToggleRow("分屏对比", "左：超分结果　右：原画直通", s.splitScreenEnabled) { v -> vm.update { it.copy(splitScreenEnabled = v) } }
     if (s.splitScreenEnabled) LabeledSlider("分割线位置", s.splitPosition, 0.05f..0.95f, "%.2f") { v -> vm.update { it.copy(splitPosition = v) } }
+    Text("细节放大检视", color = TextHi, fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp, bottom = 6.dp))
+    ChipRow(listOf(1.0f to "1x 正常", 2.0f to "2x 放大", 4.0f to "4x 像素级"), s.zoomFactor) { z -> vm.update { it.copy(zoomFactor = z) } }
 
     SectionTitle("音频与显示")
     ToggleRow("采集卡音频直通", "转发采集卡 USB 音频到扬声器（需录音权限）", s.captureAudio) { v -> vm.update { it.copy(captureAudio = v) } }

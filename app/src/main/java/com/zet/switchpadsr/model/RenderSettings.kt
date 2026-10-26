@@ -3,11 +3,11 @@ package com.zet.switchpadsr.model
 enum class InputSourceMode { CAPTURE_CARD, LOCAL_VIDEO }
 
 enum class SRAlgorithmType(val id: Int, val displayName: String, val tagline: String) {
-    SGSR(0, "SGSR 边缘定向", "骁龙 GSR 思路：沿边缘方向的 Lanczos2 重建，3D 写实游戏首选"),
-    FSR(1, "FSR 1.0", "EASU 边缘自适应放大 + RCAS 对比度自适应锐化，通用性强"),
-    ANIME4K(2, "Anime4K 风格", "双三次放大后做线条还原/细线加深/平坦区降噪，卡通画风"),
+    SGSR(0, "SGSR 边缘定向", "高通官方 Snapdragon GSR v1：12-tap 快速 Lanczos2 方向自适应超分"),
+    FSR(1, "FSR 1.0", "AMD 官方 FidelityFX FSR 1.0：12-tap EASU 空间放大 + RCAS 自适应锐化"),
+    ANIME4K(2, "Anime4K 风格", "bloc97 官方 Anime4K：Thin_HQ 双向细线收拢 + Deblur_DoG 去模糊 + Darken 墨线加深"),
     CRT(3, "复古 CRT", "扫描线 + 荧光粉栅格 + 微弧曲面，怀旧像素游戏"),
-    BICUBIC(4, "双三次", "Catmull-Rom 平滑插值，无锐化基准"),
+    BICUBIC(4, "双三次", "Catmull-Rom 4-tap 平滑插值，无锐化基准"),
     OFF(5, "原画直通", "不做超分，仅双线性缩放到屏幕");
 
     companion object {
@@ -64,9 +64,10 @@ data class RenderSettings(
     val crtCurvature: Float = 0.04f,
     val crtMask: Float = 0.25f,
 
-    // A/B compare
+    // A/B compare & zoom
     val splitScreenEnabled: Boolean = false,
     val splitPosition: Float = 0.5f,
+    val zoomFactor: Float = 1.0f,                 // 1.0, 2.0, 4.0
 
     // misc
     val showHud: Boolean = true,

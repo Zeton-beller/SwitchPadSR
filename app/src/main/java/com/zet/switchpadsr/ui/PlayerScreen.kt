@@ -104,11 +104,36 @@ fun PlayerScreen(
                     }
                     Spacer(Modifier.width(12.dp))
                 }
+                GhostIconButton(Icons.Rounded.ZoomIn, "局部放大", tint = if (s.zoomFactor > 1f) Cyan else TextHi) {
+                    val nextZoom = when (s.zoomFactor) {
+                        1.0f -> 2.0f
+                        2.0f -> 4.0f
+                        else -> 1.0f
+                    }
+                    vm.update { it.copy(zoomFactor = nextZoom) }; tick++
+                }
+                Spacer(Modifier.width(10.dp))
                 GhostIconButton(Icons.Rounded.Compare, "A/B 对比", tint = if (s.splitScreenEnabled) Cyan else TextHi) {
                     vm.update { it.copy(splitScreenEnabled = !it.splitScreenEnabled) }; tick++
                 }
                 Spacer(Modifier.width(10.dp))
                 GradientIconButton(Icons.Rounded.Tune, "画质设置") { panelOpen = !panelOpen; tick++ }
+            }
+        }
+
+        // ---- A/B split-screen & zoom floating badges ----
+        if ((streaming || (!isCapture && hasVideo)) && (s.splitScreenEnabled || s.zoomFactor > 1f)) {
+            Row(
+                Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 74.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (s.splitScreenEnabled) {
+                    Pill("◀ 左：${s.algorithm.displayName} (${vm.stats.outW}×${vm.stats.outH})", color = Cyan, bg = Color(0xBF0B1020))
+                    Pill("右：原始画面 (${vm.stats.inW}×${vm.stats.inH}) ▶", color = Amber, bg = Color(0xBF0B1020))
+                }
+                if (s.zoomFactor > 1f) {
+                    Pill("🔍 ${s.zoomFactor.toInt()}x 像素放大检视中（点击放大镜复原）", color = Mint, bg = Color(0xBF0B1020))
+                }
             }
         }
 
