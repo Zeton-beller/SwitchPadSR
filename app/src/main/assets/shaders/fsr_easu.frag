@@ -1,8 +1,7 @@
 #version 300 es
 precision highp float;
 precision highp sampler2D;
-// FSR 1.0 EASU-style edge adaptive spatial upscaler (4x4 taps, EASU kernel
-// (2/5 x^2-1)^2 (lob x^2-1), anisotropic by local gradient, de-ringed).
+// FSR 1.0 EASU (Edge Adaptive Spatial Upsampling) 16-tap anisotropic negative-lobe kernel.
 uniform sampler2D u_tex;
 uniform vec2  u_inSize;
 uniform int   u_dering;      // 0/1
@@ -13,7 +12,7 @@ vec3 fetchC(ivec2 p) {
     ivec2 s = ivec2(u_inSize);
     return texelFetch(u_tex, clamp(p, ivec2(0), s - 1), 0).rgb;
 }
-float luma(vec3 c) { return c.g + 0.5 * (c.r + c.b); }
+float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 
 void main() {
     vec2 p = v_uv * u_inSize - 0.5;
@@ -32,13 +31,17 @@ void main() {
     float gy = 0.25 * ((L[9] - L[1]) + (L[10] - L[2]) + (L[13] - L[5]) + (L[14] - L[6]));
     vec2 g = vec2(gx, gy);
     float mag = length(g);
-    float conf = clamp(mag * 6.0, 0.0, 1.0);
+    float conf = clamp(mag * 8.0, 0.0, 1.0);
     vec2 n = mag > 1e-5 ? g / mag : vec2(1.0, 0.0);
     vec2 t = vec2(-n.y, n.x);
-    float stretchAlong  = mix(1.0, 0.6, conf);    // longer kernel along the edge
-    float stretchAcross = mix(1.0, 1.2, conf);
-    float lob = 0.5 + 0.2 * conf;
-    float clp = 1.0 / lob;
+
+    // Anisotropic kernel: elongated along the edge tangent, compressed across the edge normal.
+    float stretchAlong  = mix(1.0, 0.52, conf);
+    float stretchAcross = mix(1.0, 1.55, conf);
+    // Negative lobe parameter: wA changes sign at d2 = 1/lob (~1.47..1.85), window ends at clp = 2.5.
+    float lob = mix(0.54, 0.68, conf);
+    float clp = 2.5;
+
     vec3 sum = vec3(0.0);
     float ws = 0.0;
     for (int j = 0; j < 4; ++j) {
@@ -54,11 +57,16 @@ void main() {
             ws += w;
         }
     }
-    vec3 res = sum / (abs(ws) > 1e-5 ? ws : 1e-5);
+    vec3 res = sum / (abs(ws) > 1e-5 ? ws : -1e-5);
+
+    vec3 mn2 = min(min(c[5], c[6]), min(c[9], c[10]));
+    vec3 mx2 = max(max(c[5], c[6]), max(c[9], c[10]));
     if (u_dering == 1) {
-        vec3 mn = min(min(c[5], c[6]), min(c[9], c[10]));
-        vec3 mx = max(max(c[5], c[6]), max(c[9], c[10]));
-        res = clamp(res, mn, mx);
+        res = clamp(res, mn2 - 0.015, mx2 + 0.015);
+    } else {
+        vec3 mn4 = mn2, mx4 = mx2;
+        for (int k = 0; k < 16; ++k) { mn4 = min(mn4, c[k]); mx4 = max(mx4, c[k]); }
+        res = clamp(res, mn4 - 0.12, mx4 + 0.12);
     }
     o_color = vec4(clamp(res, 0.0, 1.0), 1.0);
 }

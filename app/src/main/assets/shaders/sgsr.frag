@@ -3,7 +3,7 @@ precision highp float;
 precision highp sampler2D;
 // Edge-directed 4x4 Lanczos2 upscaler in the spirit of Snapdragon GSR 1.0.
 // Gradient of the central 2x2 block gives the edge normal; the kernel is
-// stretched along the edge and tightened across it.
+// stretched along the edge and tightened across it, with controllable acutance.
 uniform sampler2D u_tex;
 uniform vec2  u_inSize;
 uniform float u_threshold;   // 1..16  (luma gradient, in 1/255 units)
@@ -67,8 +67,8 @@ void main() {
     vec2 t = vec2(-n.y, n.x);
     float k = clamp(u_sharp - 1.0, 0.0, 1.0);
     float sa, sb;
-    if (u_useDir == 1) { sa = 0.75; sb = 1.0 + 0.6 * k; }
-    else { sa = 1.0 + 0.25 * k; sb = sa; }
+    if (u_useDir == 1) { sa = 0.62; sb = 1.15 + 0.65 * k; }
+    else { sa = 1.0 + 0.30 * k; sb = sa; }
     vec3 sum = vec3(0.0);
     float ws = 0.0;
     for (int j = 0; j < 4; ++j) {
@@ -82,9 +82,12 @@ void main() {
         }
     }
     vec3 res = sum / max(ws, 1e-4);
+    vec3 blur4 = 0.25 * (c[5] + c[6] + c[9] + c[10]);
+    res += (res - blur4) * (0.20 + 0.90 * k);
     vec3 mn = min(min(c[5], c[6]), min(c[9], c[10]));
     vec3 mx = max(max(c[5], c[6]), max(c[9], c[10]));
-    res = clamp(res, mn - 0.03, mx + 0.03);
-    float m = smoothstep(thr, thr * 2.0 + 0.02, mag);
+    float pad = 0.02 + 0.12 * k;
+    res = clamp(res, mn - pad, mx + pad);
+    float m = smoothstep(thr, thr * 2.2 + 0.02, mag);
     o_color = vec4(clamp(mix(base, res, m), 0.0, 1.0), 1.0);
 }

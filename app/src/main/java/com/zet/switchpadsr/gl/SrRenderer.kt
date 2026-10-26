@@ -210,7 +210,10 @@ class SrRenderer(
         var h: Int
         var w: Int
         when (s.targetResolution) {
-            TargetResolutionPreset.AUTO -> { w = rect[2].roundToInt(); h = rect[3].roundToInt() }
+            TargetResolutionPreset.AUTO -> {
+                h = max(rect[3].roundToInt(), inH)
+                w = (h * aspect).roundToInt()
+            }
             TargetResolutionPreset.CUSTOM -> { h = (inH * s.customScaleFactor).roundToInt(); w = (h * aspect).roundToInt() }
             else -> { h = s.targetResolution.height; w = (h * aspect).roundToInt() }
         }
@@ -249,7 +252,9 @@ class SrRenderer(
                 }
                 pass("rcas", fboB!!, fboA!!.tex) { p ->
                     size2(p, "u_inSize", tw, th)
+                    size2(p, "u_srcSize", inFbo.w, inFbo.h)
                     GLES30.glUniform1f(p.loc("u_sharp"), s.fsrSharpness)
+                    GLES30.glUniform1i(p.loc("u_dering"), if (s.fsrDering) 1 else 0)
                 }
                 setResult(fboB!!)
             }
@@ -259,6 +264,7 @@ class SrRenderer(
                 pass("bicubic", fboA!!, inFbo.tex) { p -> size2(p, "u_inSize", inFbo.w, inFbo.h) }
                 pass("anime4k", fboB!!, fboA!!.tex) { p ->
                     size2(p, "u_inSize", tw, th)
+                    size2(p, "u_srcSize", inFbo.w, inFbo.h)
                     GLES30.glUniform1f(p.loc("u_strength"), s.anime4kStrength)
                     GLES30.glUniform1i(p.loc("u_mode"), s.anime4kMode)
                 }

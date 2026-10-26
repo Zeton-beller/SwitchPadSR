@@ -96,6 +96,10 @@ private fun AlgoTab(vm: AppViewModel) {
             Text(a.displayName, color = if (sel) Cyan else TextHi, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
             Spacer(Modifier.height(3.dp))
             Text(a.tagline, color = TextMid, fontSize = 12.sp, lineHeight = 17.sp)
+            if (sel && a != SRAlgorithmType.BICUBIC && a != SRAlgorithmType.OFF) {
+                Spacer(Modifier.height(10.dp))
+                AlgoParamsControls(vm, s)
+            }
         }
     }
 }
@@ -129,6 +133,16 @@ private fun ViewTab(vm: AppViewModel) {
 private fun TuneTab(vm: AppViewModel) {
     val s = vm.settings
     SectionTitle("${s.algorithm.displayName} 参数")
+    AlgoParamsControls(vm, s)
+    Spacer(Modifier.height(18.dp))
+    Box(
+        Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0x1AFFFFFF)).clickable { vm.resetAlgorithmParams() }
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+    ) { Text("恢复默认参数", color = TextMid, fontSize = 13.sp) }
+}
+
+@Composable
+private fun AlgoParamsControls(vm: AppViewModel, s: RenderSettings) {
     when (s.algorithm) {
         SRAlgorithmType.SGSR -> {
             LabeledSlider("边缘阈值", s.sgsrThreshold, 1f..16f, "%.1f", "越小越敏感，越大越保留平坦区") { v -> vm.update { it.copy(sgsrThreshold = v) } }
@@ -136,11 +150,11 @@ private fun TuneTab(vm: AppViewModel) {
             ToggleRow("边缘方向自适应", "沿边缘拉长、垂直边缘收紧核", s.sgsrUseDirection) { v -> vm.update { it.copy(sgsrUseDirection = v) } }
         }
         SRAlgorithmType.FSR -> {
-            LabeledSlider("RCAS 锐化", s.fsrSharpness, 0f..1f, "%.2f", "1 = 最锐利") { v -> vm.update { it.copy(fsrSharpness = v) } }
-            ToggleRow("去振铃 (Dering)", "把结果限制在邻域范围内", s.fsrDering) { v -> vm.update { it.copy(fsrDering = v) } }
+            LabeledSlider("RCAS 锐化", s.fsrSharpness, 0f..1f, "%.2f", "0 = 关闭锐化，1 = 最锐利") { v -> vm.update { it.copy(fsrSharpness = v) } }
+            ToggleRow("去振铃 (Dering)", "开启抑制光晕，关闭增强微对比度", s.fsrDering) { v -> vm.update { it.copy(fsrDering = v) } }
         }
         SRAlgorithmType.ANIME4K -> {
-            LabeledSlider("线条强度", s.anime4kStrength, 0.5f..2f, "%.2f") { v -> vm.update { it.copy(anime4kStrength = v) } }
+            LabeledSlider("线条强度", s.anime4kStrength, 0.5f..2f, "%.2f", "控制边缘收拢与线条锐化力度") { v -> vm.update { it.copy(anime4kStrength = v) } }
             Text("模式", color = TextHi, fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp, bottom = 6.dp))
             ChipRow(listOf(0 to "A 还原", 1 to "B 还原+降噪", 2 to "C 线条加深"), s.anime4kMode) { m -> vm.update { it.copy(anime4kMode = m) } }
         }
@@ -151,9 +165,4 @@ private fun TuneTab(vm: AppViewModel) {
         }
         else -> Text("该模式没有可调参数。", color = TextMid, fontSize = 13.sp)
     }
-    Spacer(Modifier.height(18.dp))
-    Box(
-        Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0x1AFFFFFF)).clickable { vm.resetAlgorithmParams() }
-            .padding(horizontal = 16.dp, vertical = 10.dp)
-    ) { Text("恢复默认参数", color = TextMid, fontSize = 13.sp) }
 }
