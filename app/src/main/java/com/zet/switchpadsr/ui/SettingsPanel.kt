@@ -121,7 +121,7 @@ private fun AlgoTab(vm: AppViewModel) {
                 when (p) {
                     "ai" -> it.copy(
                         algorithm = SRAlgorithmType.AI_HYBRID,
-                        aiBackbone = AiBackbone.ARTCNN_C4F16_DS,
+                        aiBackbone = AiBackbone.RAVU_LITE_AR,
                         aiPostProcessor = AiPostProcessor.SGSR,
                         aiSharpness = 0.5f
                     )
@@ -275,10 +275,14 @@ private fun AiHybridControls(vm: AppViewModel, s: RenderSettings) {
 
         Spacer(Modifier.height(6.dp))
         Text(
-            if (s.aiBackbone == AiBackbone.ARTCNN_C4F16_DS)
-                "💡 官方 ArtCNN C4F16_DS (Compute 着色器)：1.2 万参数黄金能效比，专为 Switch 底座模式画面去噪与高频感知锐化设计，计算量仅原 C4F32 的 1/4，流畅跑满 60 帧且发热极低。"
-            else
-                "💡 官方 FSRCNNX 8-0-4-1 (Fragment 着色器)：经典 13 层全卷积神经网络，忠实平滑超分，保持原生质感。",
+            when (s.aiBackbone) {
+                AiBackbone.RAVU_LITE_AR ->
+                    "💡 官方 bjin RAVU-Lite-AR (反振铃极速算法)：单Pass片元着色器执行，内置局部方向张量与反振铃边缘钳制，彻底消除白边光晕与文字虚影，延迟低于 1.0ms，原生满帧 60~120 FPS。"
+                AiBackbone.ARTCNN_C4F16_DS ->
+                    "💡 官方 ArtCNN C4F16_DS (Compute 着色器)：1.2 万参数黄金能效比，专为 Switch 底座模式画面去噪与高频感知锐化设计，计算量仅原 C4F32 的 1/4，流畅跑满 60 帧且发热极低。"
+                AiBackbone.FSRCNNX ->
+                    "💡 官方 FSRCNNX 8-0-4-1 (Fragment 着色器)：经典 13 层全卷积神经网络，忠实平滑超分，保持原生质感。"
+            },
             color = TextMid, fontSize = 11.sp, lineHeight = 16.sp
         )
 

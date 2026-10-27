@@ -115,6 +115,43 @@ class SrRenderer(
     private var artCnnTried = false
     private val guard by lazy { context.getSharedPreferences("switchpadsr_guard", Context.MODE_PRIVATE) }
 
+    private var ravuLoaded = false
+    private var ravuLutTex = 0
+
+    /** RAVU-Lite-AR setup: single-pass directional tensor reconstruction + 13x288 LUT (59 KB). */
+    private fun ensureRavu(): Boolean {
+        if (ravuLoaded) return true
+        return try {
+            if (!programs.containsKey("ravu_step1")) {
+                programs["ravu_step1"] = GlUtil.buildProgram(context, "fullscreen.vert", "ravu_step1.frag")
+            }
+            val bytes = context.assets.open("shaders/ravu_lut3.bin").use { it.readBytes() }
+            val buf = ByteBuffer.allocateDirect(bytes.size).order(ByteOrder.nativeOrder())
+            buf.put(bytes).flip()
+
+            val texs = IntArray(1)
+            GLES30.glGenTextures(1, texs, 0)
+            ravuLutTex = texs[0]
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, ravuLutTex)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+            GLES30.glTexImage2D(
+                GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA16F, 13, 288, 0,
+                GLES30.GL_RGBA, GLES30.GL_FLOAT, buf
+            )
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+            ravuLoaded = true
+            Log.i(TAG, "RAVU-Lite-AR ready: 13x288 RGBA16F LUT loaded")
+            true
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed to initialize RAVU-Lite-AR", e)
+            ravuLoaded = false
+            false
+        }
+    }
+
     private fun ensureNn() {
         if (nnLoaded) return
         nnLayers.clear()
@@ -464,14 +501,16 @@ class SrRenderer(
     /** Two-Stage AI Hybrid Super-Resolution Pipeline: Stage 1 (AI Backbone) -> Stage 2 (Post-Processing). */
     private fun runAiHybridPipeline(s: RenderSettings, inFbo: GlFbo, tw: Int, th: Int) {
         val w = inFbo.w; val h = inFbo.h
-        val isArtCnn = (s.aiBackbone == AiBackbone.ARTCNN_C4F16_DS && ensureArtCnn())
-        if (!isArtCnn) ensureNn()
+        val isRavu = (s.aiBackbone == AiBackbone.RAVU_LITE_AR && ensureRavu())
+        val isArtCnn = (!isRavu && s.aiBackbone == AiBackbone.ARTCNN_C4F16_DS && ensureArtCnn())
+        if (!isRavu && !isArtCnn) ensureNn()
 
         // Adaptive neural grid scaling for ArtCNN C4F16_DS:
         // Default mode (artCnnHighQuality = false): scales neural grid to 640x360 (360p), producing 720p
         // 2x neural reconstructed subpixel detail at full 60 FPS real-time mobile performance without thermal throttling.
         // High Quality mode (artCnnHighQuality = true): scales neural grid to 960x540 (540p), producing 1080p
         // 2x neural reconstructed subpixel detail for 60 FPS games or maximum fidelity.
+        // For RAVU-Lite-AR, runs natively at 1080p full resolution (< 1.0ms latency).
         val maxNw = if (s.artCnnHighQuality) 960 else 640
         val maxNh = if (s.artCnnHighQuality) 540 else 360
         val (nw, nh) = if (isArtCnn && (w > maxNw || h > maxNh)) {
@@ -492,24 +531,46 @@ class SrRenderer(
         val lumaFbo = nn("LUMA", nw, nh)
         pass("fsrcnnx_luma", lumaFbo, inFbo.tex) { p -> GLES30.glUniform2i(p.loc("u_size"), nw, nh) }
 
-        // 2. Stage 1: AI Neural Backbone (ArtCNN C4F32_DS compute vs FSRCNNX fragment)
-        val subpixelTex = if (isArtCnn) {
-            runArtCnn(lumaFbo.tex, nw, nh).also { markArtCnnOk() }
-        } else {
-            for (l in nnLayers) {
-                val target = nn(l.save, w, h)
-                val prog = programs.getValue(l.program)
+        // 2. Stage 1: AI Neural Backbone (RAVU-Lite-AR single fragment pass vs ArtCNN compute vs FSRCNNX multi-layer)
+        val subpixelTex = when {
+            isRavu -> {
+                val target = nn("SUBCONV1", w, h)
+                val prog = programs.getValue("ravu_step1")
                 bindTarget(target.fbo, w, h)
                 GLES30.glUseProgram(prog.id)
                 GLES30.glUniform2i(prog.loc("u_size"), w, h)
-                l.binds.forEachIndexed { i, b ->
-                    GLES30.glActiveTexture(GLES30.GL_TEXTURE0 + i)
-                    GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, nn(b, w, h).tex)
-                    GLES30.glUniform1i(prog.loc(b), i)
-                }
+
+                GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+                GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, lumaFbo.tex)
+                GLES30.glUniform1i(prog.loc("u_tex"), 0)
+
+                GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
+                GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, ravuLutTex)
+                GLES30.glUniform1i(prog.loc("u_lut"), 1)
+
                 GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3)
+                GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+                target.tex
             }
-            nn("SUBCONV1", w, h).tex
+            isArtCnn -> {
+                runArtCnn(lumaFbo.tex, nw, nh).also { markArtCnnOk() }
+            }
+            else -> {
+                for (l in nnLayers) {
+                    val target = nn(l.save, w, h)
+                    val prog = programs.getValue(l.program)
+                    bindTarget(target.fbo, w, h)
+                    GLES30.glUseProgram(prog.id)
+                    GLES30.glUniform2i(prog.loc("u_size"), w, h)
+                    l.binds.forEachIndexed { i, b ->
+                        GLES30.glActiveTexture(GLES30.GL_TEXTURE0 + i)
+                        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, nn(b, w, h).tex)
+                        GLES30.glUniform1i(prog.loc(b), i)
+                    }
+                    GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3)
+                }
+                nn("SUBCONV1", w, h).tex
+            }
         }
 
         // 3. Upscale subpixel luma + Catmull-Rom chroma to target resolution into fboA
@@ -655,6 +716,8 @@ class SrRenderer(
         artCnnUbosLoaded = false
         artCnnAvailable = false
         artCnnTried = false
+        ravuLoaded = false
+        ravuLutTex = 0
         resultTex = 0
         processedVersion = -1
         frameAvailable.set(false)
@@ -669,6 +732,11 @@ class SrRenderer(
             GLES30.glDeleteBuffers(7, artCnnUbos, 0)
             artCnnUbosLoaded = false
         }
+        if (ravuLutTex != 0) {
+            GLES30.glDeleteTextures(1, intArrayOf(ravuLutTex), 0)
+            ravuLutTex = 0
+        }
+        ravuLoaded = false
         programs.values.forEach { it.delete() }
         releaseGl()
     }

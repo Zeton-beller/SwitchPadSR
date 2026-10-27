@@ -14,12 +14,12 @@ class SettingsStore(context: Context) {
 
     fun load(): RenderSettings {
         val d = RenderSettings()
-        val v141Migrated = sp.getBoolean("migrated_v141", false)
-        if (!v141Migrated) {
+        val v160Migrated = sp.getBoolean("migrated_v160", false)
+        if (!v160Migrated) {
             sp.edit()
-                .putBoolean("migrated_v141", true)
-                .putInt("algo", SRAlgorithmType.SGSR.id)
-                .putInt("aiBackbone", AiBackbone.FSRCNNX.id)
+                .putBoolean("migrated_v160", true)
+                .putInt("algo", SRAlgorithmType.AI_HYBRID.id)
+                .putInt("aiBackbone", AiBackbone.RAVU_LITE_AR.id)
                 .apply()
         }
         return RenderSettings(
