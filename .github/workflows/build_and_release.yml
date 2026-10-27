@@ -2,7 +2,7 @@ name: Build SwitchPadSR APK and Release
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, feat/fsrcnnx-ai-sr ]
   workflow_dispatch:
 
 permissions:
@@ -26,8 +26,9 @@ jobs:
       - name: Validate GLSL ES shaders
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq glslang-tools
+          sudo apt-get install -y -qq glslang-tools python3 python3-numpy
           bash tests/test_shaders.sh
+          python3 tests/test_sr_math.py
 
       - name: Install Android SDK packages
         run: |
@@ -43,14 +44,21 @@ jobs:
       - name: Prepare Release Artifacts
         run: |
           mkdir -p release_assets
-          cp app/build/outputs/apk/release/*.apk release_assets/SwitchPadSR-v1.2.3-release.apk
+          APK_FILE=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
+          cp "$APK_FILE" release_assets/SwitchPadSR-v1.3.0-release.apk
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SwitchPadSR-v1.3.0-release
+          path: release_assets/*.apk
 
       - name: Create GitHub Release with APK
         uses: softprops/action-gh-release@v2
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/fsrcnnx-ai-sr'
         with:
-          tag_name: v1.2.3
-          name: "SwitchPad SR v1.2.3 (算法卡片内一键重置默认参数 + 骁龙8至尊版 AI-SR 方案)"
+          tag_name: v1.3.0
+          name: "SwitchPad SR v1.3.0 (FSRCNNX GLSL 实时 AI 超分辨率 + 两阶段亚像素流水线)"
           body_path: RELEASE_NOTES.md
           draft: false
           prerelease: false

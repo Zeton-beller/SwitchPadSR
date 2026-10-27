@@ -108,6 +108,7 @@ private fun AlgoTab(vm: AppViewModel) {
     SectionTitle("场景一键预设")
     ChipRow(
         listOf(
+            "ai" to "🧠 AI 神经超分",
             "realistic" to "🎮 3D 游戏",
             "cartoon" to "🌸 卡通动漫",
             "general" to "⚡ 通用画质",
@@ -118,6 +119,7 @@ private fun AlgoTab(vm: AppViewModel) {
         onSelect = { p ->
             vm.update {
                 when (p) {
+                    "ai" -> it.copy(algorithm = SRAlgorithmType.FSRCNNX, fsrcnnxSharpness = 0.5f)
                     "realistic" -> it.copy(algorithm = SRAlgorithmType.SGSR, sgsrThreshold = 8f, sgsrSharpness = 1.5f, sgsrUseDirection = true)
                     "cartoon" -> it.copy(algorithm = SRAlgorithmType.ANIME4K, anime4kStrength = 1.0f, anime4kMode = 0)
                     "general" -> it.copy(algorithm = SRAlgorithmType.FSR, fsrSharpness = 0.8f, fsrDering = true)
@@ -176,6 +178,9 @@ private fun AlgoTab(vm: AppViewModel) {
 @Composable
 private fun AlgoInlineParams(vm: AppViewModel, s: RenderSettings) {
     when (s.algorithm) {
+        SRAlgorithmType.FSRCNNX -> {
+            LabeledSlider("RCAS 细节重构锐化", s.fsrcnnxSharpness, 0f..1f, "%.2f", "0 = 纯神经平滑重构，1 = 极度清晰高频质感") { v -> vm.update { it.copy(fsrcnnxSharpness = v) } }
+        }
         SRAlgorithmType.SGSR -> {
             LabeledSlider("边缘锐化倍率", s.sgsrSharpness, 1f..2f, "%.2fx", "高通原版 EdgeSharpness：强化 3D 轮廓清晰度") { v -> vm.update { it.copy(sgsrSharpness = v) } }
             LabeledSlider("边缘识别阈值", s.sgsrThreshold, 1f..16f, "%.1f", "越小越敏感，越大越保留平坦区域") { v -> vm.update { it.copy(sgsrThreshold = v) } }
@@ -209,6 +214,7 @@ private fun AlgoInlineParams(vm: AppViewModel, s: RenderSettings) {
                     val d = RenderSettings()
                     vm.update {
                         when (s.algorithm) {
+                            SRAlgorithmType.FSRCNNX -> it.copy(fsrcnnxSharpness = d.fsrcnnxSharpness)
                             SRAlgorithmType.SGSR -> it.copy(sgsrSharpness = d.sgsrSharpness, sgsrThreshold = d.sgsrThreshold, sgsrUseDirection = d.sgsrUseDirection)
                             SRAlgorithmType.FSR -> it.copy(fsrSharpness = d.fsrSharpness, fsrDering = d.fsrDering)
                             SRAlgorithmType.ANIME4K -> it.copy(anime4kStrength = d.anime4kStrength, anime4kMode = d.anime4kMode)

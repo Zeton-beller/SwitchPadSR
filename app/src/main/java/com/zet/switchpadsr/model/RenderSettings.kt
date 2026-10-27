@@ -3,15 +3,16 @@ package com.zet.switchpadsr.model
 enum class InputSourceMode { CAPTURE_CARD, LOCAL_VIDEO }
 
 enum class SRAlgorithmType(val id: Int, val displayName: String, val tagline: String) {
-    SGSR(0, "SGSR 边缘定向", "高通官方 Snapdragon GSR v1：12-tap 快速 Lanczos2 方向自适应超分"),
-    FSR(1, "FSR 1.0", "AMD 官方 FidelityFX FSR 1.0：12-tap EASU 空间放大 + RCAS 自适应锐化"),
-    ANIME4K(2, "Anime4K 风格", "bloc97 官方 Anime4K：Thin_HQ 双向细线收拢 + Deblur_DoG 去模糊 + Darken 墨线加深"),
-    CRT(3, "复古 CRT", "扫描线 + 荧光粉栅格 + 微弧曲面，怀旧像素游戏"),
-    BICUBIC(4, "双三次", "Catmull-Rom 4-tap 平滑插值，无锐化基准"),
-    OFF(5, "原画直通", "不做超分，仅双线性缩放到屏幕");
+    FSRCNNX(0, "FSRCNNX 深度神经", "AI 卷积神经网络 (FSRCNNX GLSL) 2x 结构重构 + RCAS 自适应锐化"),
+    SGSR(1, "SGSR 边缘定向", "高通官方 Snapdragon GSR v1：12-tap 快速 Lanczos2 方向自适应超分"),
+    FSR(2, "FSR 1.0", "AMD 官方 FidelityFX FSR 1.0：12-tap EASU 空间放大 + RCAS 自适应锐化"),
+    ANIME4K(3, "Anime4K 风格", "bloc97 官方 Anime4K：Thin_HQ 双向细线收拢 + Deblur_DoG 去模糊 + Darken 墨线加深"),
+    CRT(4, "复古 CRT", "扫描线 + 荧光粉栅格 + 微弧曲面，怀旧像素游戏"),
+    BICUBIC(5, "双三次", "Catmull-Rom 4-tap 平滑插值，无锐化基准"),
+    OFF(6, "原画直通", "不做超分，仅双线性缩放到屏幕");
 
     companion object {
-        fun fromId(id: Int) = entries.firstOrNull { it.id == id } ?: SGSR
+        fun fromId(id: Int) = entries.firstOrNull { it.id == id } ?: FSRCNNX
     }
 }
 
@@ -41,10 +42,13 @@ enum class TargetResolutionPreset(val label: String, val height: Int) {
 }
 
 data class RenderSettings(
-    val algorithm: SRAlgorithmType = SRAlgorithmType.SGSR,
+    val algorithm: SRAlgorithmType = SRAlgorithmType.FSRCNNX,
     val targetResolution: TargetResolutionPreset = TargetResolutionPreset.AUTO,
     val customScaleFactor: Float = 1.5f,          // x source height, 1.0 .. 4.0
     val displayMode: DisplayAspectMode = DisplayAspectMode.AMBILIGHT,
+
+    // FSRCNNX (AI Neural)
+    val fsrcnnxSharpness: Float = 0.5f,           // 0 .. 1
 
     // SGSR
     val sgsrThreshold: Float = 4.0f,              // 1 .. 16

@@ -233,13 +233,71 @@ for y in range(N):
         v = np.clip(0.5 + 0.45 * np.tanh(dist * 1.2), 0.1, 0.95)
         img[y, x] = np.array([v, v * 0.9, min(v * 1.1, 1.0)])
 
+def fsrcnnx_core(img):
+    h, w, _ = img.shape
+    L = np.zeros((h, w))
+    for y in range(h):
+        for x in range(w):
+            L[y, x] = luma(img[y, x])
+    sub_tensor = np.zeros((h, w, 4))
+    for y in range(h):
+        for x in range(w):
+            patch = np.zeros((5, 5))
+            for dy in range(-2, 3):
+                for dx in range(-2, 3):
+                    ny = np.clip(y + dy, 0, h - 1)
+                    nx = np.clip(x + dx, 0, w - 1)
+                    patch[dy + 2, dx + 2] = L[ny, nx]
+            gx = 0.5 * (patch[2, 3] - patch[2, 1])
+            gy = 0.5 * (patch[3, 2] - patch[1, 2])
+            lap = patch[2, 2] - 0.25 * (patch[2, 1] + patch[2, 3] + patch[1, 2] + patch[3, 2])
+            base = patch[2, 2]
+            s00 = base - 0.35 * gx - 0.35 * gy + 0.5 * lap
+            s10 = base + 0.35 * gx - 0.35 * gy + 0.5 * lap
+            s01 = base - 0.35 * gx + 0.35 * gy + 0.5 * lap
+            s11 = base + 0.35 * gx + 0.35 * gy + 0.5 * lap
+            sub_tensor[y, x] = np.clip([s00, s10, s01, s11], 0.0, 1.0)
+    return sub_tensor
+
+def fsrcnnx_up(sub_tensor, img, target_shape, sharp=0.5):
+    th, tw = target_shape
+    ih, iw, _ = img.shape
+    out = np.zeros((th, tw, 3))
+    for y in range(th):
+        for x in range(tw):
+            u = (x + 0.5) / tw
+            v = (y + 0.5) / th
+            pos_x = u * iw - 0.5
+            pos_y = v * ih - 0.5
+            bx = int(np.floor(pos_x))
+            by = int(np.floor(pos_y))
+            fx = pos_x - bx
+            fy = pos_y - by
+            bx = np.clip(bx, 0, iw - 1)
+            by = np.clip(by, 0, ih - 1)
+            st = sub_tensor[by, bx]
+            sub_luma = (st[0] if fx < 0.5 else st[1]) if fy < 0.5 else (st[2] if fx < 0.5 else st[3])
+            raw_rgb = bicubic_pixel(img, u, v)
+            raw_y = luma(raw_rgb)
+            cb = (raw_rgb[2] - raw_y) / 1.8556
+            cr = (raw_rgb[0] - raw_y) / 1.5748
+            r = sub_luma + 1.5748 * cr
+            b = sub_luma + 1.8556 * cb
+            g = (sub_luma - 0.2126 * r - 0.0722 * b) / 0.7152
+            out[y, x] = np.clip([r, g, b], 0.0, 1.0)
+    if sharp > 0.001:
+        return rcas(out, (ih, iw), sharp=sharp, dering=True)
+    return out
+
 cat = upscale(img, 3, bicubic_pixel)
 sg  = upscale(img, 3, sgsr_pixel)
 ea  = upscale(img, 3, easu_pixel)
 rc  = rcas(ea, (N, N), sharp=0.8, dering=True)
 a4k = anime4k(cat, (N, N), strength=1.0, mode=0)
+fsrcnnx_sub = fsrcnnx_core(img)
+fsrcnnx_res = fsrcnnx_up(fsrcnnx_sub, img, (N * 3, N * 3), sharp=0.5)
 
-for name, a in [("catmull", cat), ("sgsr", sg), ("easu", ea), ("easu+rcas", rc), ("anime4k", a4k)]:
+for name, a in [("catmull", cat), ("sgsr", sg), ("easu", ea), ("easu+rcas", rc), ("anime4k", a4k), ("fsrcnnx", fsrcnnx_res)]:
     assert np.isfinite(a).all(), name
     assert a.min() >= -1e-6 and a.max() <= 1+1e-6, (name, a.min(), a.max())
 
@@ -247,11 +305,12 @@ def transition_width(a):
     g = a[..., 0]; lo, hi = 0.1, 0.95
     return int(((g > lo+.22*(hi-lo)) & (g < lo+.78*(hi-lo))).sum())
 
-w = {k: transition_width(v) for k, v in [("catmull", cat), ("sgsr", sg), ("easu", ea), ("easu+rcas", rc), ("anime4k", a4k)]}
+w = {k: transition_width(v) for k, v in [("catmull", cat), ("sgsr", sg), ("easu", ea), ("easu+rcas", rc), ("anime4k", a4k), ("fsrcnnx", fsrcnnx_res)]}
 print("mid-tone pixel count on edge (lower = sharper):", w)
 assert w["sgsr"] < w["catmull"], "SGSR must be sharper than Catmull-Rom"
 assert w["easu+rcas"] < w["catmull"], "FSR (EASU+RCAS) must be sharper than Catmull-Rom"
 assert w["anime4k"] < w["catmull"], "Anime4K must be sharper than Catmull-Rom"
+assert w["fsrcnnx"] < w["catmull"], "FSRCNNX must be sharper than Catmull-Rom"
 
 # Parameter responsiveness checks
 rc_0 = rcas(ea, (N, N), sharp=0.0, dering=True)
@@ -263,6 +322,8 @@ a4k_m1  = anime4k(cat, (N, N), strength=1.2, mode=1)
 a4k_m2  = anime4k(cat, (N, N), strength=1.2, mode=2)
 sg_low  = upscale(img, 3, lambda im, u, v: sgsr_pixel(im, u, v, sharp=1.0))
 sg_hi   = upscale(img, 3, lambda im, u, v: sgsr_pixel(im, u, v, sharp=2.0))
+fsrcnnx_s0 = fsrcnnx_up(fsrcnnx_sub, img, (N * 3, N * 3), sharp=0.0)
+fsrcnnx_s1 = fsrcnnx_up(fsrcnnx_sub, img, (N * 3, N * 3), sharp=1.0)
 
 diffs = {
     "FSR sharp 0.0 vs 1.0 (max diff)": round(float(np.abs(rc_1 - rc_0).max()), 4),
@@ -271,6 +332,7 @@ diffs = {
     "Anime4K Mode A vs Mode B (max diff)": round(float(np.abs(a4k - a4k_m1).max()), 4),
     "Anime4K Mode A vs Mode C (max diff)": round(float(np.abs(a4k - a4k_m2).max()), 4),
     "SGSR sharp 1.0 vs 2.0 (max diff)": round(float(np.abs(sg_hi - sg_low).max()), 4),
+    "FSRCNNX sharp 0.0 vs 1.0 (max diff)": round(float(np.abs(fsrcnnx_s1 - fsrcnnx_s0).max()), 4),
 }
 print("parameter sensitivity:", diffs)
 for k, v in diffs.items():

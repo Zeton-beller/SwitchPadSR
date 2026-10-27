@@ -105,6 +105,7 @@ class SrRenderer(
             for ((k, f) in listOf(
                 "bicubic" to "bicubic.frag", "sgsr" to "sgsr.frag", "easu" to "fsr_easu.frag",
                 "rcas" to "fsr_rcas.frag", "anime4k" to "anime4k.frag", "crt" to "retro_crt.frag",
+                "fsrcnnx_core" to "fsrcnnx_core.frag", "fsrcnnx_up" to "fsrcnnx_up.frag",
                 "final" to "final.frag"
             )) programs[k] = GlUtil.buildProgram(context, "fullscreen.vert", f)
 
@@ -236,6 +237,23 @@ class SrRenderer(
         val (tw, th) = targetSize(s, inFbo.w, inFbo.h, rect)
         when (s.algorithm) {
             SRAlgorithmType.OFF -> { resultTex = inFbo.tex; resultW = inFbo.w; resultH = inFbo.h }
+            SRAlgorithmType.FSRCNNX -> {
+                fboA = ensureFbo(fboA, inFbo.w, inFbo.h)
+                fboB = ensureFbo(fboB, tw, th)
+                pass("fsrcnnx_core", fboA!!, inFbo.tex) { p ->
+                    size2(p, "u_inSize", inFbo.w, inFbo.h)
+                }
+                pass("fsrcnnx_up", fboB!!, fboA!!.tex) { p ->
+                    size2(p, "u_inSize", inFbo.w, inFbo.h)
+                    size2(p, "u_outSize", tw, th)
+                    GLES30.glUniform1f(p.loc("u_sharp"), s.fsrcnnxSharpness)
+                    GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
+                    GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, inFbo.tex)
+                    GLES30.glUniform1i(p.loc("u_raw"), 1)
+                }
+                GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+                setResult(fboB!!)
+            }
             SRAlgorithmType.BICUBIC -> {
                 fboA = ensureFbo(fboA, tw, th)
                 pass("bicubic", fboA!!, inFbo.tex) { p -> size2(p, "u_inSize", inFbo.w, inFbo.h) }

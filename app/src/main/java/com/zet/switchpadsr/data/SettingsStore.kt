@@ -19,6 +19,7 @@ class SettingsStore(context: Context) {
             targetResolution = TargetResolutionPreset.fromName(sp.getString("target", null)),
             customScaleFactor = sp.getFloat("customScale", d.customScaleFactor),
             displayMode = DisplayAspectMode.fromId(sp.getInt("display", d.displayMode.id)),
+            fsrcnnxSharpness = sp.getFloat("fsrcnnxSharp", d.fsrcnnxSharpness),
             sgsrThreshold = sp.getFloat("sgsrThr", d.sgsrThreshold),
             sgsrSharpness = sp.getFloat("sgsrSharp", d.sgsrSharpness),
             sgsrUseDirection = sp.getBoolean("sgsrDir", d.sgsrUseDirection),
@@ -44,6 +45,7 @@ class SettingsStore(context: Context) {
             .putString("target", s.targetResolution.name)
             .putFloat("customScale", s.customScaleFactor)
             .putInt("display", s.displayMode.id)
+            .putFloat("fsrcnnxSharp", s.fsrcnnxSharpness)
             .putFloat("sgsrThr", s.sgsrThreshold)
             .putFloat("sgsrSharp", s.sgsrSharpness)
             .putBoolean("sgsrDir", s.sgsrUseDirection)
