@@ -233,11 +233,28 @@ private fun ViewTab(vm: AppViewModel) {
         LabeledSlider("分割线位置", s.splitPosition, 0.05f..0.95f, "%.2f") { v -> vm.update { it.copy(splitPosition = v) } }
     }
 
-    Text("细节放大检视", color = TextHi, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp, bottom = 6.dp))
+    SectionTitle("细节放大检视与平移")
+    LabeledSlider("放大倍率", s.zoomFactor, 1f..8f, "%.1fx", "支持在画面上单指拖拽平移放大区域，双指捏合缩放") { z ->
+        vm.update { it.copy(zoomFactor = z) }
+    }
     ChipRow(
-        listOf(1.0f to "1x 正常", 2.0f to "2x 放大", 4.0f to "4x 像素级"),
+        listOf(1.0f to "1x 原图", 2.0f to "2x 细节", 4.0f to "4x 像素", 8.0f to "8x 极致"),
         s.zoomFactor
     ) { z -> vm.update { it.copy(zoomFactor = z) } }
+
+    if (s.zoomFactor > 1f) {
+        Spacer(Modifier.height(8.dp))
+        Row(
+            Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0x1EFFFFFF))
+                .clickable { vm.update { it.copy(zoomCenterX = 0.5f, zoomCenterY = 0.5f) } }
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Rounded.CenterFocusStrong, null, tint = Cyan, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("重置放大中心到画面中央", color = Cyan, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
 }
 
 @Composable

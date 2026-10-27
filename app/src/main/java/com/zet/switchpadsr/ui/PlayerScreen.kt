@@ -1,15 +1,14 @@
 package com.zet.switchpadsr.ui
 
 import android.app.Activity
-import android.media.AudioManager
-import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import com.zet.switchpadsr.AppViewModel
 import com.zet.switchpadsr.capture.CaptureStatus
 import com.zet.switchpadsr.model.InputSourceMode
+import com.zet.switchpadsr.model.RenderSettings
 import com.zet.switchpadsr.ui.theme.*
 import kotlinx.coroutines.delay
 
@@ -59,13 +59,13 @@ fun PlayerScreen(
 
     // Auto-hide controls
     LaunchedEffect(tick, controlsVisible, panelOpen, busy) {
-        if (controlsVisible && !panelOpen && busy) {
+        if (controlsVisible && !panelOpen && busy && s.zoomFactor <= 1f) {
             delay(3800)
             controlsVisible = false
         }
     }
 
-    // Clear gesture overlay after 1.5s
+    // Clear gesture overlay after 1.4s
     LaunchedEffect(gestureOverlay) {
         if (gestureOverlay != null) {
             delay(1400)
@@ -87,7 +87,7 @@ fun PlayerScreen(
 
     Box(
         Modifier.fillMaxSize()
-            // Touch gestures: Tap to toggle chrome, Double tap to toggle, Drag for Brightness/Volume
+            // Tap & double-tap gestures
             .pointerInput(isCapture, busy) {
                 detectTapGestures(
                     onTap = {
@@ -112,27 +112,52 @@ fun PlayerScreen(
                     }
                 )
             }
+            // Multi-finger pinch to zoom & pan
             .pointerInput(Unit) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    if (zoom != 1f || s.zoomFactor > 1f) {
+                        val nextZ = (s.zoomFactor * zoom).coerceIn(1.0f, 8.0f)
+                        val dx = -pan.x / (size.width * nextZ * 0.75f)
+                        val dy = pan.y / (size.height * nextZ * 0.75f)
+                        val nextX = (s.zoomCenterX + dx).coerceIn(0f, 1f)
+                        val nextY = (s.zoomCenterY + dy).coerceIn(0f, 1f)
+                        vm.update { it.copy(zoomFactor = nextZ, zoomCenterX = nextX, zoomCenterY = nextY) }
+                        tick++
+                    }
+                }
+            }
+            // Single-finger drag: pan when zoomed in, or brightness/volume when 1x
+            .pointerInput(s.zoomFactor) {
                 detectDragGestures(
                     onDrag = { change, dragAmount ->
                         change.consume()
-                        val isLeft = change.position.x < (size.width / 2f)
-                        val delta = -dragAmount.y / (size.height * 0.65f)
-                        if (isLeft && activity != null) {
-                            // Brightness control (left half)
-                            val lp = activity.window.attributes
-                            val current = if (lp.screenBrightness < 0f) 0.5f else lp.screenBrightness
-                            val next = (current + delta).coerceIn(0.05f, 1.0f)
-                            lp.screenBrightness = next
-                            activity.window.attributes = lp
-                            overlayIcon = Icons.Rounded.BrightnessMedium
-                            gestureOverlay = "亮度" to next
+                        if (s.zoomFactor > 1.0f) {
+                            // Pan the magnified view area
+                            val z = s.zoomFactor
+                            val dx = -dragAmount.x / (size.width * z * 0.75f)
+                            val dy = dragAmount.y / (size.height * z * 0.75f)
+                            val nextX = (s.zoomCenterX + dx).coerceIn(0f, 1f)
+                            val nextY = (s.zoomCenterY + dy).coerceIn(0f, 1f)
+                            vm.update { it.copy(zoomCenterX = nextX, zoomCenterY = nextY) }
+                            tick++
                         } else {
-                            // Volume control (right half)
-                            val next = (vm.settings.audioVolume + delta).coerceIn(0f, 1f)
-                            vm.update { it.copy(audioVolume = next) }
-                            overlayIcon = if (next == 0f) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp
-                            gestureOverlay = "音量" to next
+                            // Standard 1x: Left half = Brightness, Right half = Volume
+                            val isLeft = change.position.x < (size.width / 2f)
+                            val delta = -dragAmount.y / (size.height * 0.65f)
+                            if (isLeft && activity != null) {
+                                val lp = activity.window.attributes
+                                val current = if (lp.screenBrightness < 0f) 0.5f else lp.screenBrightness
+                                val next = (current + delta).coerceIn(0.05f, 1.0f)
+                                lp.screenBrightness = next
+                                activity.window.attributes = lp
+                                overlayIcon = Icons.Rounded.BrightnessMedium
+                                gestureOverlay = "亮度" to next
+                            } else {
+                                val next = (vm.settings.audioVolume + delta).coerceIn(0f, 1f)
+                                vm.update { it.copy(audioVolume = next) }
+                                overlayIcon = if (next == 0f) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp
+                                gestureOverlay = "音量" to next
+                            }
                         }
                     }
                 )
@@ -169,7 +194,7 @@ fun PlayerScreen(
                     Pill("右：原始画面 (${vm.stats.inW}×${vm.stats.inH}) ▶", color = Amber, bg = Color(0xDD090E1D))
                 }
                 if (s.zoomFactor > 1f) {
-                    Pill("🔍 ${s.zoomFactor.toInt()}x 细节放大", color = Mint, bg = Color(0xDD090E1D))
+                    Pill("🔍 %.1fx 放大中（可单指拖动平移）".format(s.zoomFactor), color = Mint, bg = Color(0xDD090E1D))
                 }
             }
         }
@@ -214,13 +239,13 @@ fun PlayerScreen(
 
                 // Action Controls Cluster
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    // Zoom loupe toggle (1x / 2x / 4x)
+                    // Zoom loupe toggle
                     GhostIconButton(
                         Icons.Rounded.ZoomIn, "细节放大",
                         tint = if (s.zoomFactor > 1f) Cyan else TextHi,
                         bg = if (s.zoomFactor > 1f) Cyan.copy(alpha = 0.22f) else Color(0x26FFFFFF)
                     ) {
-                        val next = when (s.zoomFactor) { 1.0f -> 2.0f; 2.0f -> 4.0f; else -> 1.0f }
+                        val next = if (s.zoomFactor <= 1f) 2.0f else 1.0f
                         vm.update { it.copy(zoomFactor = next) }; tick++
                     }
 
@@ -254,9 +279,19 @@ fun PlayerScreen(
             }
         }
 
+        // Floating Magnifier Controller Dock (when zoomed in > 1x)
+        AnimatedVisibility(
+            visible = s.zoomFactor > 1f,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = if (controlsVisible && hasVideo) 100.dp else 24.dp),
+            enter = fadeIn() + slideInVertically { it / 2 },
+            exit = fadeOut() + slideOutVertically { it / 2 }
+        ) {
+            MagnifierFloatingDock(vm, s, onTouch = { tick++ })
+        }
+
         // Bottom Bar (Video playback controls)
         AnimatedVisibility(
-            visible = controlsVisible && hasVideo,
+            visible = controlsVisible && hasVideo && s.zoomFactor <= 1f,
             modifier = Modifier.align(Alignment.BottomCenter),
             enter = fadeIn() + slideInVertically { it },
             exit = fadeOut() + slideOutVertically { it }
@@ -266,7 +301,7 @@ fun PlayerScreen(
 
         // Bottom Bar (Capture streaming minimal pill)
         AnimatedVisibility(
-            visible = controlsVisible && streaming,
+            visible = controlsVisible && streaming && s.zoomFactor <= 1f,
             modifier = Modifier.align(Alignment.BottomCenter),
             enter = fadeIn() + slideInVertically { it },
             exit = fadeOut() + slideOutVertically { it }
@@ -328,6 +363,83 @@ fun PlayerScreen(
                     .padding(horizontal = 20.dp, vertical = 12.dp)
             )
         }
+    }
+}
+
+/** Floating interactive controller for the continuous magnifier with draggable pan center */
+@Composable
+private fun MagnifierFloatingDock(
+    vm: AppViewModel,
+    s: RenderSettings,
+    onTouch: () -> Unit
+) {
+    Column(
+        Modifier.navigationBarsPadding().padding(horizontal = 24.dp)
+            .clip(RoundedCornerShape(24.dp)).background(Color(0xEE090E1D))
+            .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(24.dp))
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(Icons.Rounded.ZoomIn, null, tint = Cyan, modifier = Modifier.size(20.dp))
+            Text("放大倍率 %.1fx".format(s.zoomFactor), color = TextHi, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+
+            Slider(
+                value = s.zoomFactor,
+                onValueChange = { z ->
+                    vm.update { it.copy(zoomFactor = z) }
+                    onTouch()
+                },
+                valueRange = 1.0f..8.0f,
+                modifier = Modifier.width(180.dp),
+                colors = SliderDefaults.colors(
+                    thumbColor = Cyan, activeTrackColor = Cyan, inactiveTrackColor = Color(0x33FFFFFF)
+                )
+            )
+
+            // Preset quick chips
+            listOf(1.0f to "1x", 2.0f to "2x", 4.0f to "4x", 8.0f to "8x").forEach { (z, label) ->
+                val sel = (s.zoomFactor - z).let { it > -0.15f && it < 0.15f }
+                Box(
+                    Modifier.clip(RoundedCornerShape(8.dp))
+                        .background(if (sel) Cyan.copy(alpha = 0.25f) else Color(0x22FFFFFF))
+                        .clickable {
+                            vm.update { it.copy(zoomFactor = z) }
+                            onTouch()
+                        }.padding(horizontal = 9.dp, vertical = 5.dp)
+                ) {
+                    Text(label, color = if (sel) Cyan else TextMid, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            // Center reset button
+            Box(
+                Modifier.clip(RoundedCornerShape(8.dp)).background(Color(0x22FFFFFF))
+                    .clickable {
+                        vm.update { it.copy(zoomCenterX = 0.5f, zoomCenterY = 0.5f) }
+                        onTouch()
+                    }.padding(horizontal = 10.dp, vertical = 5.dp)
+            ) {
+                Text("居中", color = TextHi, fontSize = 11.sp)
+            }
+
+            // Close zoom button
+            Box(
+                Modifier.clip(RoundedCornerShape(8.dp)).background(Color(0x33FF6B7A))
+                    .clickable {
+                        vm.update { it.copy(zoomFactor = 1.0f, zoomCenterX = 0.5f, zoomCenterY = 0.5f) }
+                        onTouch()
+                    }.padding(horizontal = 10.dp, vertical = 5.dp)
+            ) {
+                Text("退出", color = Danger, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "提示：在画面任意位置单指拖拽即可平移放大区域，双指捏合可连续缩放",
+            color = TextLow, fontSize = 10.sp
+        )
     }
 }
 

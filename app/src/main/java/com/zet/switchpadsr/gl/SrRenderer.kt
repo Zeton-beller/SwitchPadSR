@@ -348,6 +348,7 @@ class SrRenderer(
         GLES30.glUniform1i(p.loc("u_split"), if (s.splitScreenEnabled) 1 else 0)
         GLES30.glUniform1f(p.loc("u_splitPos"), s.splitPosition)
         GLES30.glUniform1f(p.loc("u_zoom"), s.zoomFactor)
+        GLES30.glUniform2f(p.loc("u_zoomCenter"), s.zoomCenterX, s.zoomCenterY)
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
     }

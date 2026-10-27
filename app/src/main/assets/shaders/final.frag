@@ -5,16 +5,17 @@ precision highp sampler2D;
 // - 4-tap Catmull-Rom resolve for u_sr (preserves 4K supersampled detail when downscaling to screen)
 // - Letterbox / Ambilight / Center-Crop / Stretch
 // - Optional A/B split-screen comparison (left = SR, right = raw input)
-// - Optional 1x / 2x / 4x magnifier zoom for pixel-level inspection
+// - Interactive continuous magnifier zoom (1.0x .. 8.0x) with draggable pan center
 uniform sampler2D u_sr;
 uniform sampler2D u_raw;
-uniform vec2  u_srSize;     // target FBO resolution (resultW, resultH)
-uniform vec2  u_screen;     // screen viewport px
-uniform vec4  u_rect;       // x, y, w, h in px, origin bottom-left
-uniform int   u_ambient;    // 0/1
-uniform int   u_split;      // 0/1
-uniform float u_splitPos;   // 0..1
-uniform float u_zoom;       // 1.0, 2.0, 4.0
+uniform vec2  u_srSize;       // target FBO resolution (resultW, resultH)
+uniform vec2  u_screen;       // screen viewport px
+uniform vec4  u_rect;         // x, y, w, h in px, origin bottom-left
+uniform int   u_ambient;      // 0/1
+uniform int   u_split;        // 0/1
+uniform float u_splitPos;     // 0..1
+uniform float u_zoom;         // 1.0 .. 8.0
+uniform vec2  u_zoomCenter;   // 0.0 .. 1.0 (normalized pan center)
 out vec4 o_color;
 
 vec4 cubic(float v) {
@@ -54,7 +55,9 @@ void main() {
     vec3 col = vec3(0.0);
     if (inside) {
         float z = max(u_zoom, 1.0);
-        vec2 zuv = clamp((uv - 0.5) / z + 0.5, 0.0, 1.0);
+        vec2 halfSpan = vec2(0.5 / z);
+        vec2 center = clamp(u_zoomCenter, halfSpan, vec2(1.0) - halfSpan);
+        vec2 zuv = clamp((uv - 0.5) / z + center, 0.0, 1.0);
         float sx = u_screen.x * u_splitPos;
         if (u_split == 1 && frag.x > sx) col = texture(u_raw, zuv).rgb;
         else col = sampleSr(zuv);

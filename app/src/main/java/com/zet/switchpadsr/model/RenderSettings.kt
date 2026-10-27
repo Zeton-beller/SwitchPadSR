@@ -64,10 +64,12 @@ data class RenderSettings(
     val crtCurvature: Float = 0.04f,
     val crtMask: Float = 0.25f,
 
-    // A/B compare & zoom
+    // A/B compare & continuous zoom with draggable pan center
     val splitScreenEnabled: Boolean = false,
     val splitPosition: Float = 0.5f,
-    val zoomFactor: Float = 1.0f,                 // 1.0, 2.0, 4.0
+    val zoomFactor: Float = 1.0f,                 // 1.0 .. 8.0
+    val zoomCenterX: Float = 0.5f,                // 0.0 .. 1.0
+    val zoomCenterY: Float = 0.5f,                // 0.0 .. 1.0
 
     // misc
     val showHud: Boolean = true,
