@@ -14,8 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -250,7 +249,7 @@ private fun ViewTab(vm: AppViewModel) {
                 .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Rounded.CenterFocusStrong, null, tint = Cyan, modifier = Modifier.size(16.dp))
+            Icon(Icons.Rounded.Refresh, null, tint = Cyan, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
             Text("重置放大中心到画面中央", color = Cyan, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         }
