@@ -200,6 +200,32 @@ private fun AlgoInlineParams(vm: AppViewModel, s: RenderSettings) {
         }
         else -> {}
     }
+
+    if (s.algorithm != SRAlgorithmType.BICUBIC && s.algorithm != SRAlgorithmType.OFF) {
+        Spacer(Modifier.height(10.dp))
+        Row(
+            Modifier.clip(RoundedCornerShape(10.dp)).background(Cyan.copy(alpha = 0.15f))
+                .clickable {
+                    val d = RenderSettings()
+                    vm.update {
+                        when (s.algorithm) {
+                            SRAlgorithmType.SGSR -> it.copy(sgsrSharpness = d.sgsrSharpness, sgsrThreshold = d.sgsrThreshold, sgsrUseDirection = d.sgsrUseDirection)
+                            SRAlgorithmType.FSR -> it.copy(fsrSharpness = d.fsrSharpness, fsrDering = d.fsrDering)
+                            SRAlgorithmType.ANIME4K -> it.copy(anime4kStrength = d.anime4kStrength, anime4kMode = d.anime4kMode)
+                            SRAlgorithmType.CRT -> it.copy(crtScanline = d.crtScanline, crtCurvature = d.crtCurvature, crtMask = d.crtMask)
+                            else -> it
+                        }
+                    }
+                    vm.message = "${s.algorithm.displayName} 已恢复官方默认参数"
+                }
+                .padding(horizontal = 14.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Rounded.Refresh, null, tint = Cyan, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("重置为该算法默认参数", color = Cyan, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
 }
 
 @Composable
