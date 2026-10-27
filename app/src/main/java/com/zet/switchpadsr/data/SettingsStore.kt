@@ -14,6 +14,14 @@ class SettingsStore(context: Context) {
 
     fun load(): RenderSettings {
         val d = RenderSettings()
+        val v141Migrated = sp.getBoolean("migrated_v141", false)
+        if (!v141Migrated) {
+            sp.edit()
+                .putBoolean("migrated_v141", true)
+                .putInt("algo", SRAlgorithmType.SGSR.id)
+                .putInt("aiBackbone", AiBackbone.FSRCNNX.id)
+                .apply()
+        }
         return RenderSettings(
             algorithm = SRAlgorithmType.fromId(sp.getInt("algo", d.algorithm.id)),
             targetResolution = TargetResolutionPreset.fromName(sp.getString("target", null)),

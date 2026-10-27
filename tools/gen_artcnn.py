@@ -37,6 +37,7 @@ for i, h in enumerate(hooks, 1):
     body = re.sub(r'uint y = local_xy\.y; y < isize\.y; y \+= wg_size\.y', 'int y = local_xy.y; y < 18; y += 16', body)
     body = re.sub(r'uint x = local_xy\.x; x < isize\.x; x \+= wg_size\.x', 'int x = local_xy.x; x < 14; x += 12', body)
     body = re.sub(r'ivec2\(gl_WorkGroupID\) \* wg_size', 'ivec2(gl_WorkGroupID.xy) * ivec2(12, 16)', body)
+    body = re.sub(r'ivec2\(gl_GlobalInvocationID\)', 'ivec2(gl_GlobalInvocationID.xy)', body)
 
     inp_decl = 'shared F inp[1][18][14];' if i == 1 else 'shared V4 inp[8][18][14];'
     samplers = ''.join(f'uniform sampler2D {b}_raw;\n' for b in binds)

@@ -24,6 +24,33 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.zet.switchpadsr.AppViewModel
 import com.zet.switchpadsr.Screen
 import com.zet.switchpadsr.model.InputSourceMode
+import javax.microedition.khronos.egl.EGL10
+import javax.microedition.khronos.egl.EGLConfig
+import javax.microedition.khronos.egl.EGLContext
+import javax.microedition.khronos.egl.EGLDisplay
+
+private class Gles3ContextFactory : GLSurfaceView.EGLContextFactory {
+    override fun createContext(egl: EGL10, display: EGLDisplay, config: EGLConfig): EGLContext {
+        val eglContextClientVersion = 0x3098
+        val eglContextMinorVersionKhr = 0x30FB
+        val candidates = listOf(
+            intArrayOf(eglContextClientVersion, 3, eglContextMinorVersionKhr, 2, EGL10.EGL_NONE),
+            intArrayOf(eglContextClientVersion, 3, eglContextMinorVersionKhr, 1, EGL10.EGL_NONE),
+            intArrayOf(eglContextClientVersion, 3, EGL10.EGL_NONE)
+        )
+        for (attribs in candidates) {
+            val ctx = egl.eglCreateContext(display, config, EGL10.EGL_NO_CONTEXT, attribs)
+            if (ctx != null && ctx != EGL10.EGL_NO_CONTEXT) {
+                return ctx
+            }
+        }
+        return EGL10.EGL_NO_CONTEXT
+    }
+
+    override fun destroyContext(egl: EGL10, display: EGLDisplay, context: EGLContext) {
+        egl.eglDestroyContext(display, context)
+    }
+}
 
 private fun displayName(ctx: Context, uri: Uri): String {
     try {
@@ -103,6 +130,7 @@ fun AppRoot(vm: AppViewModel) {
             modifier = Modifier.fillMaxSize(),
             factory = { c ->
                 GLSurfaceView(c).apply {
+                    setEGLContextFactory(Gles3ContextFactory())
                     setEGLContextClientVersion(3)
                     setEGLConfigChooser(8, 8, 8, 0, 0, 0)
                     preserveEGLContextOnPause = true

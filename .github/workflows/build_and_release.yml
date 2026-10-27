@@ -47,20 +47,20 @@ jobs:
         run: |
           mkdir -p release_assets
           APK_FILE=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
-          cp "$APK_FILE" release_assets/SwitchPadSR-v1.4.0-release.apk
+          cp "$APK_FILE" release_assets/SwitchPadSR-v1.4.1-release.apk
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SwitchPadSR-v1.4.0-release
+          name: SwitchPadSR-v1.4.1-release
           path: release_assets/*.apk
 
       - name: Create GitHub Release with APK
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/fsrcnnx-ai-sr'
         with:
-          tag_name: v1.4.0
-          name: "SwitchPad SR v1.4.0 (官方 ArtCNN C4F32_DS 双阶级联超分与后处理全管线)"
+          tag_name: v1.4.1
+          name: "SwitchPad SR v1.4.1 (修复视频与采集卡连接卡死问题，GLES 3.2 专属上下文与双阶段 AI 稳态超分)"
           body_path: RELEASE_NOTES.md
           draft: false
           prerelease: false

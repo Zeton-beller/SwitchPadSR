@@ -112,7 +112,7 @@ void main() {
     result7 += V4(0.007459592, -0.049712658, -0.036610004, -0.06334075) * inp_0_0_2;
     result7 += V4(0.05146378, 0.104741104, 0.012032225, -0.011043505) * inp_0_1_2;
     result7 += V4(0.0075678644, 0.008855367, -0.022857144, 0.018340712) * inp_0_2_2;
-    ivec2 output_base = ivec2(gl_GlobalInvocationID) * ivec2(4, 2);
+    ivec2 output_base = ivec2(gl_GlobalInvocationID.xy) * ivec2(4, 2);
     imageStore(out_image, output_base + ivec2(0, 0), result0);
     imageStore(out_image, output_base + ivec2(1, 0), result1);
     imageStore(out_image, output_base + ivec2(2, 0), result2);

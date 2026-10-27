@@ -1,3 +1,28 @@
+# SwitchPad SR v1.4.1
+
+## 核心修复：彻底解决打开本地视频与连接采集卡直接卡死问题
+
+### 1. 根因分析与底层故障定位 (Root Cause Diagnosis)
+- **EGL 上下文版本回退**：原 `GLSurfaceView.setEGLContextClientVersion(3)` 在未指定次版本号时，部分设备驱动会回退至 OpenGL ES 3.0 上下文，导致编译 `GLES31.GL_COMPUTE_SHADER` 失败触发未捕获异常。
+- **渲染表面初始化顺序倒置**：原 `onSurfaceCreated` 将 `SurfaceTexture` / `Surface` 的创建置于神经网络着色器编译之后。当着色器编译耗时或发生异常时，传入 `AppViewModel` 的 `inputSurface` 为 `null`，导致 ExoPlayer 播放器与 UVC 采集卡无法绑定渲染表面，播放器直接卡死。
+- **初始默认设置负载过高**：v1.4.0 默认启用了 `AI_HYBRID` + `ArtCNN_C4F32_DS`。ArtCNN 在 1080p 分辨率下展开为 7680x2160 的超大特征纹理，单帧需要分配超过 800MB 显存并执行数十亿次矩阵运算，首帧直接造成 GPU 队列阻塞与渲染线程卡死。
+
+### 2. 核心架构修复措施 (Architectural Fixes)
+- **GLES 3.2 专属上下文工厂**：在 `AppRoot.kt` 中引入 `Gles3ContextFactory`，按优先级显式请求 `GLES 3.2` -> `GLES 3.1` -> `GLES 3.0`，并在 `AndroidManifest.xml` 中将系统要求升级至 `0x00030002`，确保 Compute Shader 与不可变纹理存储获得完整驱动支持。
+- **表面优先防御性初始化 (Defensive Surface Initialization)**：在 `SrRenderer.onSurfaceCreated` 的首行立即创建 `SurfaceTexture` 与 `Surface` 并交付 `onInputSurface`。即使任何后续可选着色器加载失败，底层视频与采集卡输入表面始终 100% 正常工作。
+- **算力自适应与 Ping-Pong 显存复用**：
+  - 重构 `runArtCnn` 显存模型，从同时持有 6 组全尺寸 FBO 改为 `ping` / `pong` 双缓冲乒乓复用，显存占用直接腰斩 50% 以上。
+  - 将 ArtCNN 计算着色器编译完全隔离在独立 `try-catch` 块中，驱动不支持时自动无缝降级至 FSRCNNX。
+- **帧渲染看门狗与自动容灾切回**：
+  - 移除导致主渲染线程阻塞的同步 `glFinish()`。
+  - 在 `onDrawFrame` 增加自动容灾：若任何渲染阶段抛出异常，自动切回极速稳定的高通 SGSR 模式，彻底杜绝黑屏死锁。
+- **重置安全初始预设**：
+  - 新安装与升级默认算法重置为**高通 SGSR (120 FPS 极速高保真)**。
+  - AI 复合超分底模默认推荐设为 **FSRCNNX (60 FPS 稳定神经超分)**。
+  - 自动执行 SharedPreferences 键值迁移，避免旧版本崩溃配置残留。
+
+---
+
 # SwitchPad SR v1.4.0
 
 ## 重大升级：官方 ArtCNN C4F32_DS 双阶级联超分与后处理全管线

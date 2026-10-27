@@ -91,6 +91,7 @@ class SrRenderer(
     private class ArtCnnLayer(val program: String, val save: String, val binds: List<String>, val wScale: Float, val hScale: Float)
     private val artCnnLayers = ArrayList<ArtCnnLayer>()
     private val artCnnFbos = HashMap<String, GlFbo>()
+    private var artCnnAvailable = false
     private var screenW = 1
     private var screenH = 1
     private var hasFrame = false
@@ -110,32 +111,7 @@ class SrRenderer(
         releaseGl()
         failed = false
         try {
-            programs["oes"] = GlUtil.buildProgram(context, "fullscreen.vert", "oes_copy.frag")
-            for ((k, f) in listOf(
-                "bicubic" to "bicubic.frag", "sgsr" to "sgsr.frag", "easu" to "fsr_easu.frag",
-                "rcas" to "fsr_rcas.frag", "anime4k" to "anime4k.frag", "crt" to "retro_crt.frag",
-                "fsrcnnx_luma" to "fsrcnnx_luma.frag", "fsrcnnx_up" to "fsrcnnx_up.frag",
-                "final" to "final.frag"
-            )) programs[k] = GlUtil.buildProgram(context, "fullscreen.vert", f)
-
-            // FSRCNNX: 13 generated layer programs (see tools/gen_fsrcnnx.py + fsrcnnx_manifest.txt)
-            nnLayers.clear()
-            for (line in GlUtil.readAsset(context, "shaders/fsrcnnx_manifest.txt").lines()) {
-                val parts = line.trim().split(" ")
-                if (parts.size < 3) continue
-                programs[parts[0]] = GlUtil.buildProgram(context, "fullscreen.vert", parts[0])
-                nnLayers.add(NnLayer(parts[0], parts[1], parts[2].split(",")))
-            }
-
-            // ArtCNN C4F32_DS: 7 compute shader layers (see tools/gen_artcnn.py + artcnn_manifest.txt)
-            artCnnLayers.clear()
-            for (line in GlUtil.readAsset(context, "shaders/artcnn_manifest.txt").lines()) {
-                val parts = line.trim().split(" ")
-                if (parts.size < 5) continue
-                programs[parts[0]] = GlUtil.buildComputeProgram(context, parts[0])
-                artCnnLayers.add(ArtCnnLayer(parts[0], parts[1], parts[2].split(","), parts[3].toFloat(), parts[4].toFloat()))
-            }
-
+            // STEP 1: MUST create OES texture and Surface FIRST so inputSurface is never null
             val t = IntArray(1)
             GLES30.glGenTextures(1, t, 0)
             oesTex = t[0]
@@ -156,6 +132,42 @@ class SrRenderer(
             hasFrame = false
             needsProcess = true
             onInputSurface(surface)
+
+            // STEP 2: Standard fragment shaders
+            programs["oes"] = GlUtil.buildProgram(context, "fullscreen.vert", "oes_copy.frag")
+            for ((k, f) in listOf(
+                "bicubic" to "bicubic.frag", "sgsr" to "sgsr.frag", "easu" to "fsr_easu.frag",
+                "rcas" to "fsr_rcas.frag", "anime4k" to "anime4k.frag", "crt" to "retro_crt.frag",
+                "fsrcnnx_luma" to "fsrcnnx_luma.frag", "fsrcnnx_up" to "fsrcnnx_up.frag",
+                "final" to "final.frag"
+            )) programs[k] = GlUtil.buildProgram(context, "fullscreen.vert", f)
+
+            // STEP 3: FSRCNNX 13 generated fragment shaders
+            nnLayers.clear()
+            for (line in GlUtil.readAsset(context, "shaders/fsrcnnx_manifest.txt").lines()) {
+                val parts = line.trim().split(" ")
+                if (parts.size < 3) continue
+                programs[parts[0]] = GlUtil.buildProgram(context, "fullscreen.vert", parts[0])
+                nnLayers.add(NnLayer(parts[0], parts[1], parts[2].split(",")))
+            }
+
+            // STEP 4: ArtCNN C4F32_DS compute shaders (isolated in safe try-catch)
+            artCnnAvailable = false
+            try {
+                artCnnLayers.clear()
+                for (line in GlUtil.readAsset(context, "shaders/artcnn_manifest.txt").lines()) {
+                    val parts = line.trim().split(" ")
+                    if (parts.size < 5) continue
+                    programs[parts[0]] = GlUtil.buildComputeProgram(context, parts[0])
+                    artCnnLayers.add(ArtCnnLayer(parts[0], parts[1], parts[2].split(","), parts[3].toFloat(), parts[4].toFloat()))
+                }
+                artCnnAvailable = true
+                Log.i(TAG, "ArtCNN compute shaders loaded successfully")
+            } catch (e: Throwable) {
+                Log.w(TAG, "ArtCNN compute shaders unavailable on this EGL context: ${e.message}")
+                artCnnAvailable = false
+            }
+
             Log.i(TAG, "GL ready: ${GLES30.glGetString(GLES30.GL_RENDERER)} / ${GLES30.glGetString(GLES30.GL_VERSION)}")
         } catch (e: Throwable) {
             failed = true
@@ -176,10 +188,16 @@ class SrRenderer(
         try {
             draw()
         } catch (e: Throwable) {
-            failed = true
-            Log.e(TAG, "draw failed", e)
-            onError("渲染失败: ${e.message}")
-            clearScreen()
+            Log.e(TAG, "draw failed, falling back to SGSR", e)
+            onError("渲染异常，已自动切回快速模式: ${e.message}")
+            settings = settings.copy(algorithm = SRAlgorithmType.SGSR)
+            try {
+                draw()
+            } catch (e2: Throwable) {
+                failed = true
+                Log.e(TAG, "fallback draw failed", e2)
+                clearScreen()
+            }
         }
     }
 
@@ -229,9 +247,9 @@ class SrRenderer(
         val version = settingsVersion.get()
         if (newFrame || needsProcess || version != processedVersion) {
             val measure = (++processCount % 30 == 0)
-            val t0 = if (measure) { GLES30.glFinish(); System.nanoTime() } else 0L
+            val t0 = if (measure) System.nanoTime() else 0L
             runPipeline(s, inFbo, rect)
-            if (measure) { GLES30.glFinish(); gpuMs = (System.nanoTime() - t0) / 1e6f }
+            if (measure) { gpuMs = (System.nanoTime() - t0) / 1e6f }
             processedVersion = version
             needsProcess = false
         }
@@ -322,32 +340,54 @@ class SrRenderer(
 
     /** Dispatches ArtCNN C4F32_DS 7 compute layers via GLES 3.10 and returns the subpixel tensor texture. */
     private fun runArtCnn(lumaTex: Int, w: Int, h: Int): Int {
-        fun artFbo(name: String, scaleW: Float, scaleH: Float): GlFbo {
+        fun artStorageFbo(key: String, scaleW: Float, scaleH: Float): GlFbo {
             val targetW = (w * scaleW).roundToInt()
             val targetH = (h * scaleH).roundToInt()
-            val cur = artCnnFbos[name]
+            val cur = artCnnFbos[key]
             if (cur != null && cur.w == targetW && cur.h == targetH) return cur
             cur?.delete()
-            return GlUtil.createStorageFboF16(targetW, targetH).also { artCnnFbos[name] = it }
+            return GlUtil.createStorageFboF16(targetW, targetH).also { artCnnFbos[key] = it }
         }
+
+        // Ping-pong storage buffers: conv2d (skip), ping, pong, and output
+        val fboConv2d = artStorageFbo("conv2d", 4.0f, 2.0f)
+        val fboPing = artStorageFbo("ping", 4.0f, 2.0f)
+        val fboPong = artStorageFbo("pong", 4.0f, 2.0f)
+        val fboOut = artStorageFbo("conv2d_6", 1.0f, 1.0f)
 
         val gx = (w + 11) / 12
         val gy = (h + 15) / 16
 
-        for (l in artCnnLayers) {
-            val target = artFbo(l.save, l.wScale, l.hScale)
-            val prog = programs.getValue(l.program)
-            GLES31.glUseProgram(prog.id)
+        for ((idx, l) in artCnnLayers.withIndex()) {
+            val prog = programs[l.program] ?: continue
+            val target = when (idx) {
+                0 -> fboConv2d
+                1 -> fboPing
+                2 -> fboPong
+                3 -> fboPing
+                4 -> fboPong
+                5 -> fboPing
+                6 -> fboOut
+                else -> fboPing
+            }
 
-            // Bind output image (binding = 0)
+            GLES31.glUseProgram(prog.id)
             GLES31.glBindImageTexture(
                 0, target.tex, 0, false, 0,
                 GLES31.GL_WRITE_ONLY, GLES30.GL_RGBA16F
             )
 
-            // Bind input samplers
             l.binds.forEachIndexed { i, b ->
-                val tex = if (b == "LUMA") lumaTex else artCnnFbos[b]!!.tex
+                val tex = when (b) {
+                    "LUMA" -> lumaTex
+                    "conv2d" -> fboConv2d.tex
+                    "conv2d_1" -> fboPing.tex
+                    "conv2d_2" -> fboPong.tex
+                    "conv2d_3" -> fboPing.tex
+                    "conv2d_4" -> fboPong.tex
+                    "conv2d_5" -> fboPing.tex
+                    else -> fboPing.tex
+                }
                 GLES31.glActiveTexture(GLES31.GL_TEXTURE0 + i)
                 GLES31.glBindTexture(GLES31.GL_TEXTURE_2D, tex)
                 val loc = prog.loc("${b}_raw")
@@ -363,7 +403,7 @@ class SrRenderer(
         }
 
         GLES31.glBindTexture(GLES31.GL_TEXTURE_2D, 0)
-        return artCnnFbos.getValue("conv2d_6").tex
+        return fboOut.tex
     }
 
     /** Two-Stage AI Hybrid Super-Resolution Pipeline: Stage 1 (AI Backbone) -> Stage 2 (Post-Processing). */
@@ -380,7 +420,7 @@ class SrRenderer(
         pass("fsrcnnx_luma", nn("LUMA"), inFbo.tex) { p -> GLES30.glUniform2i(p.loc("u_size"), w, h) }
 
         // 2. Stage 1: AI Neural Backbone (ArtCNN C4F32_DS compute vs FSRCNNX fragment)
-        val isArtCnn = (s.aiBackbone == AiBackbone.ARTCNN_C4F32_DS)
+        val isArtCnn = (s.aiBackbone == AiBackbone.ARTCNN_C4F32_DS && artCnnAvailable)
         val subpixelTex = if (isArtCnn) {
             runArtCnn(nn("LUMA").tex, w, h)
         } else {

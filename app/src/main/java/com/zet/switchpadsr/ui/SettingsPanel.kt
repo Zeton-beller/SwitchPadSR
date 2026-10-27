@@ -121,7 +121,7 @@ private fun AlgoTab(vm: AppViewModel) {
                 when (p) {
                     "ai" -> it.copy(
                         algorithm = SRAlgorithmType.AI_HYBRID,
-                        aiBackbone = AiBackbone.ARTCNN_C4F32_DS,
+                        aiBackbone = AiBackbone.FSRCNNX,
                         aiPostProcessor = AiPostProcessor.SGSR,
                         aiSharpness = 0.5f
                     )
