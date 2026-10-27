@@ -1,7 +1,7 @@
-artcnn_p01.comp conv2d LUMA 4.0 2.0
-artcnn_p02.comp conv2d_1 conv2d 4.0 2.0
-artcnn_p03.comp conv2d_2 conv2d_1 4.0 2.0
-artcnn_p04.comp conv2d_3 conv2d_2 4.0 2.0
-artcnn_p05.comp conv2d_4 conv2d_3 4.0 2.0
-artcnn_p06.comp conv2d_5 conv2d_4 4.0 2.0
-artcnn_p07.comp conv2d_6 conv2d,conv2d_5 1.0 1.0
+artcnn_p01.comp conv2d LUMA 4.0 2.0 artcnn_w01.bin
+artcnn_conv.comp conv2d_1 conv2d 4.0 2.0 artcnn_w02.bin
+artcnn_conv.comp conv2d_2 conv2d_1 4.0 2.0 artcnn_w03.bin
+artcnn_conv.comp conv2d_3 conv2d_2 4.0 2.0 artcnn_w04.bin
+artcnn_conv.comp conv2d_4 conv2d_3 4.0 2.0 artcnn_w05.bin
+artcnn_conv.comp conv2d_5 conv2d_4 4.0 2.0 artcnn_w06.bin
+artcnn_p07.comp conv2d_6 conv2d,conv2d_5 1.0 1.0 artcnn_w07.bin

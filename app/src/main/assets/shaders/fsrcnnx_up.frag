@@ -7,7 +7,8 @@ precision highp sampler2D;
 // recombines with bicubic source chroma -> encodes Sobel edge response in alpha for post-processors.
 uniform sampler2D SUBCONV1;   // RGBA16F, subpixel luma tensor at source resolution
 uniform sampler2D u_raw;      // source RGB
-uniform ivec2 u_size;         // source size
+uniform ivec2 u_size;         // neural grid size
+uniform ivec2 u_rawSize;      // source RGB size
 uniform int u_isArtCnn;       // 1 for ArtCNN (row-major), 0 for FSRCNNX (col-major)
 uniform float u_nnWeight;     // AI detail strength
 
@@ -46,28 +47,29 @@ void main() {
             yNN += lumaNN(b2 + ivec2(i - 1, j - 1)) * wx2[i] * wy2[j];
 
     // Bicubic RGB of the source (chroma carrier) at the same position
-    vec2 p = v_uv * sz - 0.5;
+    ivec2 rawSz = (u_rawSize.x > 0) ? u_rawSize : u_size;
+    vec2 p = v_uv * vec2(rawSz) - 0.5;
     ivec2 b = ivec2(floor(p));
     vec2 f = p - floor(p);
     vec4 wx = cr(f.x), wy = cr(f.y);
     vec3 rgb = vec3(0.0);
     for (int j = 0; j < 4; j++)
         for (int i = 0; i < 4; i++)
-            rgb += texelFetch(u_raw, clamp(b + ivec2(i - 1, j - 1), ivec2(0), u_size - 1), 0).rgb * wx[i] * wy[j];
+            rgb += texelFetch(u_raw, clamp(b + ivec2(i - 1, j - 1), ivec2(0), rawSz - 1), 0).rgb * wx[i] * wy[j];
 
     // Blend neural reconstruction with adjustable AI weight (0.0 = pure bicubic, 1.0 = standard neural, 1.5 = enhanced)
     rgb += (yNN - luma(rgb)) * (0.5 + u_nnWeight);
     rgb = clamp(rgb, 0.0, 1.0);
 
     // Compute Sobel magnitude for downstream Anime4K compatibility
-    float l00 = dot(texelFetch(u_raw, clamp(b + ivec2(-1, -1), ivec2(0), u_size - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
-    float l20 = dot(texelFetch(u_raw, clamp(b + ivec2( 1, -1), ivec2(0), u_size - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
-    float l02 = dot(texelFetch(u_raw, clamp(b + ivec2(-1,  1), ivec2(0), u_size - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
-    float l22 = dot(texelFetch(u_raw, clamp(b + ivec2( 1,  1), ivec2(0), u_size - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
-    float l01 = dot(texelFetch(u_raw, clamp(b + ivec2(-1,  0), ivec2(0), u_size - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
-    float l21 = dot(texelFetch(u_raw, clamp(b + ivec2( 1,  0), ivec2(0), u_size - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
-    float l10 = dot(texelFetch(u_raw, clamp(b + ivec2( 0, -1), ivec2(0), u_size - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
-    float l12 = dot(texelFetch(u_raw, clamp(b + ivec2( 0,  1), ivec2(0), u_size - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
+    float l00 = dot(texelFetch(u_raw, clamp(b + ivec2(-1, -1), ivec2(0), rawSz - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
+    float l20 = dot(texelFetch(u_raw, clamp(b + ivec2( 1, -1), ivec2(0), rawSz - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
+    float l02 = dot(texelFetch(u_raw, clamp(b + ivec2(-1,  1), ivec2(0), rawSz - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
+    float l22 = dot(texelFetch(u_raw, clamp(b + ivec2( 1,  1), ivec2(0), rawSz - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
+    float l01 = dot(texelFetch(u_raw, clamp(b + ivec2(-1,  0), ivec2(0), rawSz - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
+    float l21 = dot(texelFetch(u_raw, clamp(b + ivec2( 1,  0), ivec2(0), rawSz - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
+    float l10 = dot(texelFetch(u_raw, clamp(b + ivec2( 0, -1), ivec2(0), rawSz - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
+    float l12 = dot(texelFetch(u_raw, clamp(b + ivec2( 0,  1), ivec2(0), rawSz - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
     float gx = (l20 - l00) + 2.0 * (l21 - l01) + (l22 - l02);
     float gy = (l02 - l00) + 2.0 * (l12 - l10) + (l22 - l20);
     float edgeNorm = sqrt(gx * gx + gy * gy);

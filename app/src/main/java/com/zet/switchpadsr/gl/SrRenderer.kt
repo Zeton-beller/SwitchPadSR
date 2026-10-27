@@ -14,6 +14,8 @@ import com.zet.switchpadsr.model.DisplayAspectMode
 import com.zet.switchpadsr.model.RenderSettings
 import com.zet.switchpadsr.model.SRAlgorithmType
 import com.zet.switchpadsr.model.TargetResolutionPreset
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import javax.microedition.khronos.egl.EGLConfig
@@ -88,9 +90,11 @@ class SrRenderer(
     private class NnLayer(val program: String, val save: String, val binds: List<String>)
     private val nnLayers = ArrayList<NnLayer>()
     private val nnFbos = HashMap<String, GlFbo>()
-    private class ArtCnnLayer(val program: String, val save: String, val binds: List<String>, val wScale: Float, val hScale: Float)
+    private class ArtCnnLayer(val program: String, val save: String, val binds: List<String>, val wScale: Float, val hScale: Float, val weightBin: String)
     private val artCnnLayers = ArrayList<ArtCnnLayer>()
     private val artCnnFbos = HashMap<String, GlFbo>()
+    private val artCnnUbos = IntArray(7)
+    private var artCnnUbosLoaded = false
     private var artCnnAvailable = false
     private var screenW = 1
     private var screenH = 1
@@ -106,7 +110,6 @@ class SrRenderer(
     private var gpuMs = 0f
     private var processCount = 0
     private var failed = false
-
 
     private var nnLoaded = false
     private var artCnnTried = false
@@ -124,34 +127,45 @@ class SrRenderer(
         nnLoaded = true
     }
 
-    /** ArtCNN guard states: 0 untested, 1 in-progress (process died => driver crash), 2 ok, 3 disabled. */
+    /** ArtCNN C4F32_DS GLES 3.10 UBO setup: 3 compute shaders + 7 binary weight buffers (190 KB total). */
     private fun ensureArtCnn(): Boolean {
+        if (artCnnAvailable) return true
         if (artCnnTried) return artCnnAvailable
         artCnnTried = true
-        var st = guard.getInt("artcnn", 0)
-        if (st == 1) { st = 3; guard.edit().putInt("artcnn", 3).commit() }
-        if (st == 3) { onError("ArtCNN 在此设备上曾导致崩溃，已永久禁用，自动使用 FSRCNNX"); return false }
-        guard.edit().putInt("artcnn", 1).commit()
+        guard.edit().remove("artcnn").apply()
         return try {
             artCnnLayers.clear()
             for (line in GlUtil.readAsset(context, "shaders/artcnn_manifest.txt").lines()) {
                 val parts = line.trim().split(" ")
-                if (parts.size < 5) continue
-                programs[parts[0]] = GlUtil.buildComputeProgram(context, parts[0])
-                artCnnLayers.add(ArtCnnLayer(parts[0], parts[1], parts[2].split(","), parts[3].toFloat(), parts[4].toFloat()))
+                if (parts.size < 6) continue
+                if (!programs.containsKey(parts[0])) {
+                    programs[parts[0]] = GlUtil.buildComputeProgram(context, parts[0])
+                }
+                artCnnLayers.add(ArtCnnLayer(parts[0], parts[1], parts[2].split(","), parts[3].toFloat(), parts[4].toFloat(), parts[5]))
+            }
+            if (!artCnnUbosLoaded) {
+                GLES30.glGenBuffers(7, artCnnUbos, 0)
+                for (i in 0 until 7) {
+                    val bytes = context.assets.open("shaders/artcnn_w%02d.bin".format(i + 1)).use { it.readBytes() }
+                    val bb = ByteBuffer.allocateDirect(bytes.size).order(ByteOrder.nativeOrder())
+                    bb.put(bytes).position(0)
+                    GLES30.glBindBuffer(GLES30.GL_UNIFORM_BUFFER, artCnnUbos[i])
+                    GLES30.glBufferData(GLES30.GL_UNIFORM_BUFFER, bytes.size, bb, GLES30.GL_STATIC_DRAW)
+                }
+                GLES30.glBindBuffer(GLES30.GL_UNIFORM_BUFFER, 0)
+                artCnnUbosLoaded = true
             }
             artCnnAvailable = true
             true
         } catch (e: Throwable) {
-            Log.w(TAG, "ArtCNN unavailable: ${e.message}")
-            guard.edit().putInt("artcnn", 3).commit()
+            Log.e(TAG, "ArtCNN load failed", e)
             artCnnAvailable = false
-            onError("ArtCNN 不可用，已使用 FSRCNNX")
+            onError("ArtCNN 初始化失败，自动切回 FSRCNNX: ${e.message}")
             false
         }
     }
 
-    private fun markArtCnnOk() { if (guard.getInt("artcnn", 0) == 1) guard.edit().putInt("artcnn", 2).apply() }
+    private fun markArtCnnOk() { guard.edit().putInt("artcnn", 2).apply() }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         releaseGl()
@@ -372,7 +386,7 @@ class SrRenderer(
             return GlUtil.createStorageFboF16(targetW, targetH).also { artCnnFbos[key] = it }
         }
 
-        // Ping-pong storage buffers: conv2d (skip), ping, pong, and output
+        // Storage buffers: conv2d (skip connection), ping, pong, and output
         val fboConv2d = artStorageFbo("conv2d", 4.0f, 2.0f)
         val fboPing = artStorageFbo("ping", 4.0f, 2.0f)
         val fboPong = artStorageFbo("pong", 4.0f, 2.0f)
@@ -395,28 +409,43 @@ class SrRenderer(
             }
 
             GLES31.glUseProgram(prog.id)
+            GLES31.glBindBufferBase(GLES31.GL_UNIFORM_BUFFER, 1, artCnnUbos[idx])
             GLES31.glBindImageTexture(
                 0, target.tex, 0, false, 0,
                 GLES31.GL_WRITE_ONLY, GLES30.GL_RGBA16F
             )
 
-            l.binds.forEachIndexed { i, b ->
-                val tex = when (b) {
-                    "LUMA" -> lumaTex
-                    "conv2d" -> fboConv2d.tex
-                    "conv2d_1" -> fboPing.tex
-                    "conv2d_2" -> fboPong.tex
-                    "conv2d_3" -> fboPing.tex
-                    "conv2d_4" -> fboPong.tex
-                    "conv2d_5" -> fboPing.tex
+            if (idx == 0) {
+                // Layer 1: reads LUMA_raw
+                GLES31.glActiveTexture(GLES31.GL_TEXTURE0)
+                GLES31.glBindTexture(GLES31.GL_TEXTURE_2D, lumaTex)
+                val loc = prog.loc("LUMA_raw")
+                if (loc >= 0) GLES31.glUniform1i(loc, 0)
+            } else if (idx in 1..5) {
+                // Layers 2..6: read in_tex
+                val inTex = when (idx) {
+                    1 -> fboConv2d.tex
+                    2 -> fboPing.tex
+                    3 -> fboPong.tex
+                    4 -> fboPing.tex
+                    5 -> fboPong.tex
                     else -> fboPing.tex
                 }
-                GLES31.glActiveTexture(GLES31.GL_TEXTURE0 + i)
-                GLES31.glBindTexture(GLES31.GL_TEXTURE_2D, tex)
-                val loc = prog.loc("${b}_raw")
-                if (loc >= 0) {
-                    GLES31.glUniform1i(loc, i)
-                }
+                GLES31.glActiveTexture(GLES31.GL_TEXTURE0)
+                GLES31.glBindTexture(GLES31.GL_TEXTURE_2D, inTex)
+                val loc = prog.loc("in_tex")
+                if (loc >= 0) GLES31.glUniform1i(loc, 0)
+            } else if (idx == 6) {
+                // Layer 7: reads conv2d_raw and conv2d_5_raw
+                GLES31.glActiveTexture(GLES31.GL_TEXTURE0)
+                GLES31.glBindTexture(GLES31.GL_TEXTURE_2D, fboConv2d.tex)
+                val loc0 = prog.loc("conv2d_raw")
+                if (loc0 >= 0) GLES31.glUniform1i(loc0, 0)
+
+                GLES31.glActiveTexture(GLES31.GL_TEXTURE1)
+                GLES31.glBindTexture(GLES31.GL_TEXTURE_2D, fboPing.tex) // layer 5 output is in fboPing
+                val loc1 = prog.loc("conv2d_5_raw")
+                if (loc1 >= 0) GLES31.glUniform1i(loc1, 1)
             }
 
             GLES31.glDispatchCompute(gx, gy, 1)
@@ -432,36 +461,49 @@ class SrRenderer(
     /** Two-Stage AI Hybrid Super-Resolution Pipeline: Stage 1 (AI Backbone) -> Stage 2 (Post-Processing). */
     private fun runAiHybridPipeline(s: RenderSettings, inFbo: GlFbo, tw: Int, th: Int) {
         val w = inFbo.w; val h = inFbo.h
-        fun nn(name: String): GlFbo {
-            val cur = nnFbos[name]
-            if (cur != null && cur.w == w && cur.h == h) return cur
-            cur?.delete()
-            return GlUtil.createStorageFboF16(w, h).also { nnFbos[name] = it }
-        }
-
-        // 1. Convert input to high-precision luma in nn("LUMA")
-        pass("fsrcnnx_luma", nn("LUMA"), inFbo.tex) { p -> GLES30.glUniform2i(p.loc("u_size"), w, h) }
-
-        // 2. Stage 1: AI Neural Backbone (ArtCNN C4F32_DS compute vs FSRCNNX fragment)
         val isArtCnn = (s.aiBackbone == AiBackbone.ARTCNN_C4F32_DS && ensureArtCnn())
         if (!isArtCnn) ensureNn()
+
+        // Adaptive neural grid scaling:
+        // ArtCNN is a heavy 48k-param 32-channel model. For input resolutions > 540p (e.g. 720p or 1080p docked Switch),
+        // scale neural backbone execution to 540p (960x540). Its 2x neural output (1920x1080) is then resampled
+        // with Catmull-Rom and blended with full-resolution native source RGB in fsrcnnx_up.frag.
+        val (nw, nh) = if (isArtCnn && (w > 960 || h > 540)) {
+            val scale = minOf(960f / w, 540f / h)
+            Pair(max(1, (w * scale).roundToInt()), max(1, (h * scale).roundToInt()))
+        } else {
+            Pair(w, h)
+        }
+
+        fun nn(name: String, nwTarget: Int = w, nhTarget: Int = h): GlFbo {
+            val cur = nnFbos[name]
+            if (cur != null && cur.w == nwTarget && cur.h == nhTarget) return cur
+            cur?.delete()
+            return GlUtil.createStorageFboF16(nwTarget, nhTarget).also { nnFbos[name] = it }
+        }
+
+        // 1. Convert input to high-precision luma in nn("LUMA") at (nw, nh)
+        val lumaFbo = nn("LUMA", nw, nh)
+        pass("fsrcnnx_luma", lumaFbo, inFbo.tex) { p -> GLES30.glUniform2i(p.loc("u_size"), nw, nh) }
+
+        // 2. Stage 1: AI Neural Backbone (ArtCNN C4F32_DS compute vs FSRCNNX fragment)
         val subpixelTex = if (isArtCnn) {
-            runArtCnn(nn("LUMA").tex, w, h).also { if (guard.getInt("artcnn", 0) == 1) { GLES30.glFinish(); markArtCnnOk() } }
+            runArtCnn(lumaFbo.tex, nw, nh).also { markArtCnnOk() }
         } else {
             for (l in nnLayers) {
-                val target = nn(l.save)
+                val target = nn(l.save, w, h)
                 val prog = programs.getValue(l.program)
                 bindTarget(target.fbo, w, h)
                 GLES30.glUseProgram(prog.id)
                 GLES30.glUniform2i(prog.loc("u_size"), w, h)
                 l.binds.forEachIndexed { i, b ->
                     GLES30.glActiveTexture(GLES30.GL_TEXTURE0 + i)
-                    GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, nn(b).tex)
+                    GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, nn(b, w, h).tex)
                     GLES30.glUniform1i(prog.loc(b), i)
                 }
                 GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3)
             }
-            nn("SUBCONV1").tex
+            nn("SUBCONV1", w, h).tex
         }
 
         // 3. Upscale subpixel luma + Catmull-Rom chroma to target resolution into fboA
@@ -469,7 +511,8 @@ class SrRenderer(
         val up = programs.getValue("fsrcnnx_up")
         bindTarget(fboA!!.fbo, tw, th)
         GLES30.glUseProgram(up.id)
-        GLES30.glUniform2i(up.loc("u_size"), w, h)
+        GLES30.glUniform2i(up.loc("u_size"), nw, nh)
+        GLES30.glUniform2i(up.loc("u_rawSize"), w, h)
         GLES30.glUniform1i(up.loc("u_isArtCnn"), if (isArtCnn) 1 else 0)
         GLES30.glUniform1f(up.loc("u_nnWeight"), s.aiSharpness)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
@@ -603,6 +646,9 @@ class SrRenderer(
         inputFbo = null; fboA = null; fboB = null
         nnFbos.clear()
         artCnnFbos.clear()
+        artCnnUbosLoaded = false
+        artCnnAvailable = false
+        artCnnTried = false
         resultTex = 0
         processedVersion = -1
         frameAvailable.set(false)
@@ -613,6 +659,10 @@ class SrRenderer(
         inputFbo?.delete(); fboA?.delete(); fboB?.delete()
         nnFbos.values.forEach { it.delete() }; nnFbos.clear()
         artCnnFbos.values.forEach { it.delete() }; artCnnFbos.clear()
+        if (artCnnUbosLoaded) {
+            GLES30.glDeleteBuffers(7, artCnnUbos, 0)
+            artCnnUbosLoaded = false
+        }
         programs.values.forEach { it.delete() }
         releaseGl()
     }
