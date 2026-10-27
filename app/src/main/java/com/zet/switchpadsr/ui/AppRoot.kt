@@ -62,15 +62,33 @@ fun AppRoot(vm: AppViewModel) {
     }
     val pickVideo: () -> Unit = { videoPicker.launch(arrayOf("video/*")) }
 
+    val audioPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            vm.message = "麦克风权限已获取，采集卡音频直通已就绪"
+            if (vm.settings.captureAudio) vm.update { it.copy(captureAudio = true) }
+        } else {
+            vm.message = "未授予麦克风权限，采集卡画面正常但扬声器无声音"
+        }
+    }
+    val requestAudioPermission: () -> Unit = {
+        audioPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        vm.goCapture()   // go ahead even if audio permission was denied: video still works
+        vm.goCapture()
     }
     val startCapture: () -> Unit = {
-        val need = listOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA).filter {
+        val need = listOf(Manifest.permission.RECORD_AUDIO).filter {
             ContextCompat.checkSelfPermission(ctx, it) != PackageManager.PERMISSION_GRANTED
         }
-        if (need.isEmpty() || vm.askedPermissions) vm.goCapture()
-        else { vm.askedPermissions = true; permLauncher.launch(need.toTypedArray()) }
+        if (need.isEmpty()) {
+            vm.goCapture()
+        } else if (!vm.askedPermissions) {
+            vm.askedPermissions = true
+            permLauncher.launch(need.toTypedArray())
+        } else {
+            vm.goCapture()
+        }
     }
     val openVideoTab: () -> Unit = {
         if (vm.currentVideoUri != null) vm.resumeVideoOrNull()
@@ -103,10 +121,11 @@ fun AppRoot(vm: AppViewModel) {
                 onOpenRecent = { r -> vm.openVideo(Uri.parse(r.uri), r.name) }
             )
             Screen.PLAYER -> PlayerScreen(
-                vm,
+                vm = vm,
                 onPickVideo = pickVideo,
                 onSelectCapture = startCapture,
-                onSelectVideo = openVideoTab
+                onSelectVideo = openVideoTab,
+                onRequestAudioPermission = requestAudioPermission
             )
         }
     }

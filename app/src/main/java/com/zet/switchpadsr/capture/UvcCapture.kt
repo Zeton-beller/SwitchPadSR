@@ -91,9 +91,12 @@ class UvcCapture(
         if (d.deviceClass == UsbConstants.USB_CLASS_VIDEO) return true
         if (d.deviceClass == 239 /* misc / IAD */) return true
         for (i in 0 until d.interfaceCount) {
-            if (d.getInterface(i).interfaceClass == UsbConstants.USB_CLASS_VIDEO) return true
+            val cls = d.getInterface(i).interfaceClass
+            if (cls == UsbConstants.USB_CLASS_VIDEO || cls == 14) return true
         }
-        return false
+        val name = (d.productName ?: d.deviceName).lowercase()
+        return name.contains("capture") || name.contains("cam") || name.contains("hdmi") ||
+               name.contains("ms2109") || name.contains("ms2130") || name.contains("shadowcast")
     }
 
     /** Start monitoring; connects to the first UVC device found. */
@@ -147,15 +150,18 @@ class UvcCapture(
 
     private fun pickSize(cam: UVCCamera): Size? {
         val list: List<Size> = try { cam.supportedSizeList ?: emptyList() } catch (_: Throwable) { emptyList() }
-        Log.i(TAG, "supported: " + list.joinToString { "${it.width}x${it.height}@${it.fps}(t${it.type})" })
-        fun maxFps(s: Size) = (s.fpsList?.maxOrNull() ?: s.fps)
-        val best = list.maxByOrNull {
-            val base = when {
-                it.width == 1920 && it.height == 1080 -> 100000
-                it.width == 1280 && it.height == 720 -> 50000
-                else -> it.width * it.height / 100
+        Log.i(TAG, "supported sizes: " + list.joinToString { "${it.width}x${it.height}@${it.fps}(fmt=${it.type})" })
+        fun maxFps(s: Size): Int = (s.fpsList?.maxOrNull() ?: s.fps).coerceAtLeast(30)
+        val best = list.maxByOrNull { s ->
+            val fps = maxFps(s)
+            val resScore = when {
+                s.width == 1920 && s.height == 1080 -> 250_000
+                s.width == 1280 && s.height == 720 -> 120_000
+                else -> (s.width * s.height) / 10
             }
-            base + maxFps(it)
+            // Heavily favor MJPEG for full 60fps throughput on Switch capture cards
+            val mjpegBonus = if (s.type == UVCCamera.FRAME_FORMAT_MJPEG) 60_000 else 0
+            resScore + fps * 1_000 + mjpegBonus
         } ?: return null
         return best.clone().also { it.fps = maxFps(best) }
     }
@@ -237,6 +243,13 @@ class UvcCapture(
         if (cam != null) {
             try { cam.stopPreview() } catch (_: Throwable) {}
             try { cam.destroy() } catch (_: Throwable) {}
+        }
+    }
+
+    fun onDeviceAttached(device: UsbDevice) {
+        if (isVideoDevice(device)) {
+            Log.i(TAG, "onDeviceAttached intent: ${device.deviceName}")
+            requestDevice(device)
         }
     }
 

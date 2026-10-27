@@ -1,6 +1,7 @@
 package com.zet.switchpadsr.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -28,34 +29,86 @@ fun Modifier.glass(radius: Int = 20): Modifier =
         .background(Glass)
         .border(BorderStroke(1.dp, Outline), RoundedCornerShape(radius.dp))
 
+fun Modifier.glassPanel(radius: Int = 18): Modifier =
+    this.clip(RoundedCornerShape(radius.dp))
+        .background(Color(0xCC0D1426))
+        .border(BorderStroke(1.dp, Color(0x24FFFFFF)), RoundedCornerShape(radius.dp))
+
 @Composable
 fun GradientIconButton(icon: ImageVector, desc: String, size: Int = 44, onClick: () -> Unit) {
     Box(
         Modifier.size(size.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Cyan, Violet)))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
-    ) { Icon(icon, desc, tint = Ink, modifier = Modifier.size((size * 0.55f).dp)) }
+    ) { Icon(icon, desc, tint = Ink, modifier = Modifier.size((size * 0.52f).dp)) }
 }
 
 @Composable
-fun GhostIconButton(icon: ImageVector, desc: String, size: Int = 44, tint: Color = TextHi, onClick: () -> Unit) {
+fun GhostIconButton(
+    icon: ImageVector,
+    desc: String,
+    size: Int = 42,
+    tint: Color = TextHi,
+    bg: Color = Color(0x26FFFFFF),
+    onClick: () -> Unit
+) {
     Box(
-        Modifier.size(size.dp).clip(CircleShape).background(Color(0x33FFFFFF)).clickable(onClick = onClick),
+        Modifier.size(size.dp).clip(CircleShape).background(bg).clickable(onClick = onClick),
         contentAlignment = Alignment.Center
-    ) { Icon(icon, desc, tint = tint, modifier = Modifier.size((size * 0.52f).dp)) }
+    ) { Icon(icon, desc, tint = tint, modifier = Modifier.size((size * 0.50f).dp)) }
 }
 
 @Composable
-fun Pill(text: String, color: Color = TextHi, bg: Color = Color(0x33FFFFFF)) {
-    Box(
-        Modifier.clip(RoundedCornerShape(50)).background(bg).padding(horizontal = 12.dp, vertical = 6.dp)
-    ) { Text(text, color = color, fontSize = 12.sp, fontWeight = FontWeight.Medium) }
+fun Pill(
+    text: String,
+    color: Color = TextHi,
+    bg: Color = Color(0x33FFFFFF),
+    icon: ImageVector? = null
+) {
+    Row(
+        Modifier.clip(RoundedCornerShape(50)).background(bg).padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        if (icon != null) {
+            Icon(icon, null, tint = color, modifier = Modifier.size(13.dp))
+        }
+        Text(text, color = color, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+fun StatusBadge(active: Boolean, activeText: String, idleText: String) {
+    Row(
+        Modifier.clip(RoundedCornerShape(50)).background(if (active) Mint.copy(alpha = 0.15f) else Color(0x1AFFFFFF))
+            .border(1.dp, if (active) Mint.copy(alpha = 0.3f) else Color(0x14FFFFFF), RoundedCornerShape(50))
+            .padding(horizontal = 12.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Box(
+            Modifier.size(7.dp).clip(CircleShape)
+                .background(if (active) Mint else TextLow)
+        )
+        Text(
+            if (active) activeText else idleText,
+            color = if (active) Mint else TextMid,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium
+        )
+    }
 }
 
 @Composable
 fun SectionTitle(text: String) {
-    Text(text, color = TextMid, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
-        modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
+    Text(
+        text,
+        color = TextMid,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 1.sp,
+        modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
+    )
 }
 
 @Composable
@@ -117,6 +170,29 @@ fun ToggleRow(label: String, sub: String? = null, checked: Boolean, onChange: (B
                 uncheckedThumbColor = TextMid, uncheckedTrackColor = Color(0x33FFFFFF), uncheckedBorderColor = Color.Transparent
             )
         )
+    }
+}
+
+/** Modern floating HUD pill for brightness / volume gesture feedback */
+@Composable
+fun GestureOverlayPill(icon: ImageVector, label: String, progress: Float) {
+    val animatedProgress by animateFloatAsState(progress, label = "gest_prog")
+    Row(
+        Modifier.clip(RoundedCornerShape(30.dp)).background(Color(0xDD0B1020))
+            .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(30.dp))
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Icon(icon, null, tint = Cyan, modifier = Modifier.size(24.dp))
+        Text(label, color = TextHi, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        LinearProgressIndicator(
+            progress = { animatedProgress },
+            modifier = Modifier.width(100.dp).height(6.dp).clip(RoundedCornerShape(3.dp)),
+            color = Cyan,
+            trackColor = Color(0x33FFFFFF),
+        )
+        Text("${(progress * 100).toInt()}%", color = Cyan, fontSize = 13.sp, fontWeight = FontWeight.Bold)
     }
 }
 

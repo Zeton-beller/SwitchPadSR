@@ -2,6 +2,7 @@ package com.zet.switchpadsr
 
 import android.app.Application
 import android.content.Context
+import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.net.Uri
 import android.os.Handler
@@ -11,6 +12,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
+import com.zet.switchpadsr.audio.AudioStatus
 import com.zet.switchpadsr.audio.CaptureAudio
 import com.zet.switchpadsr.capture.CaptureInfo
 import com.zet.switchpadsr.capture.CaptureStatus
@@ -36,12 +38,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var mode by mutableStateOf(store.lastMode()); private set
     var captureInfo by mutableStateOf(CaptureInfo()); private set
     var videoInfo by mutableStateOf(VideoInfo()); private set
+    var audioStatus by mutableStateOf(AudioStatus()); private set
     var stats by mutableStateOf(RenderStats()); private set
     var videoName by mutableStateOf(""); private set
     var recents by mutableStateOf<List<RecentVideo>>(store.recents()); private set
     var usbPresent by mutableStateOf(false); private set
     var message by mutableStateOf<String?>(null)
     var askedPermissions = false
+
+    // Quick on-screen gesture states (0.0 .. 1.0)
+    var gestureBrightness by mutableStateOf<Float?>(null)
+    var gestureVolume by mutableStateOf<Float?>(null)
 
     var currentVideoUri: Uri? = null; private set
     private var inputSurface: Surface? = null
@@ -69,7 +76,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         onInfo = { info -> main.post { onCaptureInfo(info) } }
     )
 
-    private val audio = CaptureAudio(ctx)
+    private val audio = CaptureAudio(ctx) { status ->
+        main.post { audioStatus = status }
+    }
 
     init {
         renderer.updateSettings(settings)
@@ -170,6 +179,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun onAppForeground() {
         if (screen == Screen.PLAYER && mode == InputSourceMode.CAPTURE_CARD) capture.start()
     }
+
+    fun onUsbAttached(dev: UsbDevice) {
+        usbPresent = true
+        capture.onDeviceAttached(dev)
+        if (screen == Screen.HOME) {
+            message = "已连接采集卡: ${dev.productName ?: dev.deviceName}"
+        }
+    }
+
+    fun hasAudioPermission(): Boolean = audio.hasRecordPermission()
 
     fun refreshUsbHint() {
         try {

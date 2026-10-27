@@ -43,14 +43,14 @@ jobs:
       - name: Prepare Release Artifacts
         run: |
           mkdir -p release_assets
-          cp app/build/outputs/apk/release/*.apk release_assets/SwitchPadSR-v1.1.1-release.apk
+          cp app/build/outputs/apk/release/*.apk release_assets/SwitchPadSR-v1.2.0-release.apk
 
       - name: Create GitHub Release with APK
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         with:
-          tag_name: v1.1.1
-          name: "SwitchPad SR v1.1.1 (FSR 1.0 & Anime4K 核心算法与参数响应重制)"
+          tag_name: v1.2.0
+          name: "SwitchPad SR v1.2.0 (简约高级 UI 重构 + 采集卡音频动态路由 + 手势交互)"
           body_path: RELEASE_NOTES.md
           draft: false
           prerelease: false
