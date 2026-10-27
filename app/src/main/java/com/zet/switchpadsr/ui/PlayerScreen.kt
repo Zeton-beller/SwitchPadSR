@@ -6,9 +6,8 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -32,6 +32,7 @@ import com.zet.switchpadsr.capture.CaptureStatus
 import com.zet.switchpadsr.model.InputSourceMode
 import com.zet.switchpadsr.model.RenderSettings
 import com.zet.switchpadsr.ui.theme.*
+import kotlin.math.hypot
 import kotlinx.coroutines.delay
 
 @Composable
@@ -85,84 +86,152 @@ fun PlayerScreen(
         if (panelOpen) panelOpen = false else vm.goHome()
     }
 
-    Box(
-        Modifier.fillMaxSize()
-            // Tap & double-tap gestures
-            .pointerInput(isCapture, busy) {
-                detectTapGestures(
-                    onTap = {
-                        controlsVisible = !controlsVisible
-                        tick++
-                    },
-                    onDoubleTap = { offset ->
-                        if (isCapture) {
-                            // Double tap toggles A/B split-screen in capture card mode!
-                            vm.update { it.copy(splitScreenEnabled = !it.splitScreenEnabled) }
-                            tick++
-                        } else {
-                            val w = size.width
-                            if (offset.x < w * 0.35f) {
-                                vm.video.seekBy(-10_000); tick++
-                            } else if (offset.x > w * 0.65f) {
-                                vm.video.seekBy(10_000); tick++
-                            } else {
-                                vm.video.togglePlay(); tick++
+    Box(Modifier.fillMaxSize()) {
+        // Fullscreen touch & gesture interaction layer (behind HUD / controls)
+        Box(
+            Modifier.fillMaxSize()
+                .pointerInput(isCapture) {
+                    val touchSlop = viewConfiguration.touchSlop
+                    var lastTapTime = 0L
+                    var lastTapPos = Offset.Zero
+
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val startPos = down.position
+                        var lastPos = startPos
+                        val startTime = System.currentTimeMillis()
+
+                        var isTransforming = false
+                        var isDragging = false
+                        var dragType = 0 // 1: pan, 2: brightness, 3: volume
+
+                        var prevDistance = 0f
+                        var prevCentroid = Offset.Zero
+
+                        do {
+                            val event = awaitPointerEvent()
+                            val activePointers = event.changes.filter { it.pressed }
+                            val count = activePointers.size
+
+                            if (count >= 2) {
+                                // Multi-touch: Pinch to Zoom and Pan
+                                isTransforming = true
+                                val p1 = activePointers[0].position
+                                val p2 = activePointers[1].position
+                                val currentCentroid = (p1 + p2) / 2f
+                                val currentDistance = hypot(p1.x - p2.x, p1.y - p2.y)
+
+                                if (prevDistance > 0f && prevDistance > 1f) {
+                                    val zoomRatio = currentDistance / prevDistance
+                                    val panDelta = currentCentroid - prevCentroid
+
+                                    val cur = vm.settings
+                                    val nextZ = (cur.zoomFactor * zoomRatio).coerceIn(1.0f, 8.0f)
+                                    val halfSpanX = 0.5f / nextZ
+                                    val halfSpanY = 0.5f / nextZ
+                                    val dx = -panDelta.x / (size.width.toFloat() * nextZ)
+                                    val dy = panDelta.y / (size.height.toFloat() * nextZ)
+                                    val nextX = (cur.zoomCenterX + dx).coerceIn(halfSpanX, 1.0f - halfSpanX)
+                                    val nextY = (cur.zoomCenterY + dy).coerceIn(halfSpanY, 1.0f - halfSpanY)
+
+                                    vm.update { it.copy(zoomFactor = nextZ, zoomCenterX = nextX, zoomCenterY = nextY) }
+                                    tick++
+                                }
+                                prevDistance = currentDistance
+                                prevCentroid = currentCentroid
+                                event.changes.forEach { it.consume() }
+
+                            } else if (count == 1 && !isTransforming) {
+                                // Single-finger touch
+                                val change = activePointers[0]
+                                val currentPos = change.position
+                                val totalMoved = hypot(currentPos.x - startPos.x, currentPos.y - startPos.y)
+
+                                if (!isDragging && totalMoved > touchSlop) {
+                                    isDragging = true
+                                    val cur = vm.settings
+                                    dragType = if (cur.zoomFactor > 1.01f) 1 else if (startPos.x < size.width / 2f) 2 else 3
+                                }
+
+                                if (isDragging) {
+                                    val delta = currentPos - lastPos
+                                    when (dragType) {
+                                        1 -> {
+                                            // Pan magnified area (1:1 finger tracking)
+                                            val cur = vm.settings
+                                            val z = cur.zoomFactor
+                                            val halfSpanX = 0.5f / z
+                                            val halfSpanY = 0.5f / z
+                                            val dx = -delta.x / (size.width.toFloat() * z)
+                                            val dy = delta.y / (size.height.toFloat() * z)
+                                            val nextX = (cur.zoomCenterX + dx).coerceIn(halfSpanX, 1.0f - halfSpanX)
+                                            val nextY = (cur.zoomCenterY + dy).coerceIn(halfSpanY, 1.0f - halfSpanY)
+                                            vm.update { it.copy(zoomCenterX = nextX, zoomCenterY = nextY) }
+                                            tick++
+                                        }
+                                        2 -> {
+                                            // Left half: Brightness
+                                            if (activity != null) {
+                                                val lp = activity.window.attributes
+                                                val current = if (lp.screenBrightness < 0f) 0.5f else lp.screenBrightness
+                                                val deltaRatio = -delta.y / (size.height * 0.65f)
+                                                val next = (current + deltaRatio).coerceIn(0.05f, 1.0f)
+                                                lp.screenBrightness = next
+                                                activity.window.attributes = lp
+                                                overlayIcon = Icons.Rounded.BrightnessMedium
+                                                gestureOverlay = "亮度" to next
+                                            }
+                                        }
+                                        3 -> {
+                                            // Right half: Volume
+                                            val deltaRatio = -delta.y / (size.height * 0.65f)
+                                            val next = (vm.settings.audioVolume + deltaRatio).coerceIn(0f, 1f)
+                                            vm.update { it.copy(audioVolume = next) }
+                                            overlayIcon = if (next == 0f) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp
+                                            gestureOverlay = "音量" to next
+                                        }
+                                    }
+                                    change.consume()
+                                }
+                                lastPos = currentPos
+                            }
+                        } while (event.changes.any { it.pressed })
+
+                        // Touch released: Tap detection
+                        if (!isTransforming && !isDragging) {
+                            val now = System.currentTimeMillis()
+                            val tapDuration = now - startTime
+                            if (tapDuration < 350) {
+                                val tapDistance = hypot(startPos.x - lastTapPos.x, startPos.y - lastTapPos.y)
+                                if (now - lastTapTime < 380 && tapDistance < 120) {
+                                    // Double tap!
+                                    lastTapTime = 0L
+                                    if (isCapture) {
+                                        vm.update { it.copy(splitScreenEnabled = !it.splitScreenEnabled) }
+                                        tick++
+                                    } else {
+                                        val w = size.width
+                                        if (startPos.x < w * 0.35f) {
+                                            vm.video.seekBy(-10_000); tick++
+                                        } else if (startPos.x > w * 0.65f) {
+                                            vm.video.seekBy(10_000); tick++
+                                        } else {
+                                            vm.video.togglePlay(); tick++
+                                        }
+                                    }
+                                } else {
+                                    // Single tap
+                                    lastTapTime = now
+                                    lastTapPos = startPos
+                                    controlsVisible = !controlsVisible
+                                    tick++
+                                }
                             }
                         }
-                    }
-                )
-            }
-            // Multi-finger pinch to zoom & pan
-            .pointerInput(Unit) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    if (zoom != 1f || s.zoomFactor > 1f) {
-                        val nextZ = (s.zoomFactor * zoom).coerceIn(1.0f, 8.0f)
-                        val dx = -pan.x / (size.width * nextZ * 0.75f)
-                        val dy = pan.y / (size.height * nextZ * 0.75f)
-                        val nextX = (s.zoomCenterX + dx).coerceIn(0f, 1f)
-                        val nextY = (s.zoomCenterY + dy).coerceIn(0f, 1f)
-                        vm.update { it.copy(zoomFactor = nextZ, zoomCenterX = nextX, zoomCenterY = nextY) }
-                        tick++
                     }
                 }
-            }
-            // Single-finger drag: pan when zoomed in, or brightness/volume when 1x
-            .pointerInput(s.zoomFactor) {
-                detectDragGestures(
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        if (s.zoomFactor > 1.0f) {
-                            // Pan the magnified view area
-                            val z = s.zoomFactor
-                            val dx = -dragAmount.x / (size.width * z * 0.75f)
-                            val dy = dragAmount.y / (size.height * z * 0.75f)
-                            val nextX = (s.zoomCenterX + dx).coerceIn(0f, 1f)
-                            val nextY = (s.zoomCenterY + dy).coerceIn(0f, 1f)
-                            vm.update { it.copy(zoomCenterX = nextX, zoomCenterY = nextY) }
-                            tick++
-                        } else {
-                            // Standard 1x: Left half = Brightness, Right half = Volume
-                            val isLeft = change.position.x < (size.width / 2f)
-                            val delta = -dragAmount.y / (size.height * 0.65f)
-                            if (isLeft && activity != null) {
-                                val lp = activity.window.attributes
-                                val current = if (lp.screenBrightness < 0f) 0.5f else lp.screenBrightness
-                                val next = (current + delta).coerceIn(0.05f, 1.0f)
-                                lp.screenBrightness = next
-                                activity.window.attributes = lp
-                                overlayIcon = Icons.Rounded.BrightnessMedium
-                                gestureOverlay = "亮度" to next
-                            } else {
-                                val next = (vm.settings.audioVolume + delta).coerceIn(0f, 1f)
-                                vm.update { it.copy(audioVolume = next) }
-                                overlayIcon = if (next == 0f) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp
-                                gestureOverlay = "音量" to next
-                            }
-                        }
-                    }
-                )
-            }
-    ) {
+        )
+
         // Status cards when idle / waiting
         if (isCapture && !streaming) {
             CaptureWaitingCard(vm, onRequestAudioPermission, Modifier.align(Alignment.Center))

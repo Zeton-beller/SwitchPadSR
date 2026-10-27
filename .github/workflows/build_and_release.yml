@@ -43,14 +43,14 @@ jobs:
       - name: Prepare Release Artifacts
         run: |
           mkdir -p release_assets
-          cp app/build/outputs/apk/release/*.apk release_assets/SwitchPadSR-v1.2.1-release.apk
+          cp app/build/outputs/apk/release/*.apk release_assets/SwitchPadSR-v1.2.2-release.apk
 
       - name: Create GitHub Release with APK
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         with:
-          tag_name: v1.2.1
-          name: "SwitchPad SR v1.2.1 (滑动放大镜倍率与自由拖拽平移 + 简约高级 UI + 采集卡音频动态路由)"
+          tag_name: v1.2.2
+          name: "SwitchPad SR v1.2.2 (重构统合手势交互：双指连续捏合缩放+单指1:1自由拖拽+AI超分研究)"
           body_path: RELEASE_NOTES.md
           draft: false
           prerelease: false
