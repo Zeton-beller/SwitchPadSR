@@ -107,6 +107,52 @@ class SrRenderer(
     private var processCount = 0
     private var failed = false
 
+
+    private var nnLoaded = false
+    private var artCnnTried = false
+    private val guard by lazy { context.getSharedPreferences("switchpadsr_guard", Context.MODE_PRIVATE) }
+
+    private fun ensureNn() {
+        if (nnLoaded) return
+        nnLayers.clear()
+        for (line in GlUtil.readAsset(context, "shaders/fsrcnnx_manifest.txt").lines()) {
+            val parts = line.trim().split(" ")
+            if (parts.size < 3) continue
+            programs[parts[0]] = GlUtil.buildProgram(context, "fullscreen.vert", parts[0])
+            nnLayers.add(NnLayer(parts[0], parts[1], parts[2].split(",")))
+        }
+        nnLoaded = true
+    }
+
+    /** ArtCNN guard states: 0 untested, 1 in-progress (process died => driver crash), 2 ok, 3 disabled. */
+    private fun ensureArtCnn(): Boolean {
+        if (artCnnTried) return artCnnAvailable
+        artCnnTried = true
+        var st = guard.getInt("artcnn", 0)
+        if (st == 1) { st = 3; guard.edit().putInt("artcnn", 3).commit() }
+        if (st == 3) { onError("ArtCNN 在此设备上曾导致崩溃，已永久禁用，自动使用 FSRCNNX"); return false }
+        guard.edit().putInt("artcnn", 1).commit()
+        return try {
+            artCnnLayers.clear()
+            for (line in GlUtil.readAsset(context, "shaders/artcnn_manifest.txt").lines()) {
+                val parts = line.trim().split(" ")
+                if (parts.size < 5) continue
+                programs[parts[0]] = GlUtil.buildComputeProgram(context, parts[0])
+                artCnnLayers.add(ArtCnnLayer(parts[0], parts[1], parts[2].split(","), parts[3].toFloat(), parts[4].toFloat()))
+            }
+            artCnnAvailable = true
+            true
+        } catch (e: Throwable) {
+            Log.w(TAG, "ArtCNN unavailable: ${e.message}")
+            guard.edit().putInt("artcnn", 3).commit()
+            artCnnAvailable = false
+            onError("ArtCNN 不可用，已使用 FSRCNNX")
+            false
+        }
+    }
+
+    private fun markArtCnnOk() { if (guard.getInt("artcnn", 0) == 1) guard.edit().putInt("artcnn", 2).apply() }
+
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         releaseGl()
         failed = false
@@ -142,31 +188,8 @@ class SrRenderer(
                 "final" to "final.frag"
             )) programs[k] = GlUtil.buildProgram(context, "fullscreen.vert", f)
 
-            // STEP 3: FSRCNNX 13 generated fragment shaders
-            nnLayers.clear()
-            for (line in GlUtil.readAsset(context, "shaders/fsrcnnx_manifest.txt").lines()) {
-                val parts = line.trim().split(" ")
-                if (parts.size < 3) continue
-                programs[parts[0]] = GlUtil.buildProgram(context, "fullscreen.vert", parts[0])
-                nnLayers.add(NnLayer(parts[0], parts[1], parts[2].split(",")))
-            }
-
-            // STEP 4: ArtCNN C4F32_DS compute shaders (isolated in safe try-catch)
-            artCnnAvailable = false
-            try {
-                artCnnLayers.clear()
-                for (line in GlUtil.readAsset(context, "shaders/artcnn_manifest.txt").lines()) {
-                    val parts = line.trim().split(" ")
-                    if (parts.size < 5) continue
-                    programs[parts[0]] = GlUtil.buildComputeProgram(context, parts[0])
-                    artCnnLayers.add(ArtCnnLayer(parts[0], parts[1], parts[2].split(","), parts[3].toFloat(), parts[4].toFloat()))
-                }
-                artCnnAvailable = true
-                Log.i(TAG, "ArtCNN compute shaders loaded successfully")
-            } catch (e: Throwable) {
-                Log.w(TAG, "ArtCNN compute shaders unavailable on this EGL context: ${e.message}")
-                artCnnAvailable = false
-            }
+            // AI shaders are compiled lazily on first use (ensureNn / ensureArtCnn) so startup stays instant.
+            nnLoaded = false; artCnnAvailable = false; artCnnTried = false
 
             Log.i(TAG, "GL ready: ${GLES30.glGetString(GLES30.GL_RENDERER)} / ${GLES30.glGetString(GLES30.GL_VERSION)}")
         } catch (e: Throwable) {
@@ -420,9 +443,10 @@ class SrRenderer(
         pass("fsrcnnx_luma", nn("LUMA"), inFbo.tex) { p -> GLES30.glUniform2i(p.loc("u_size"), w, h) }
 
         // 2. Stage 1: AI Neural Backbone (ArtCNN C4F32_DS compute vs FSRCNNX fragment)
-        val isArtCnn = (s.aiBackbone == AiBackbone.ARTCNN_C4F32_DS && artCnnAvailable)
+        val isArtCnn = (s.aiBackbone == AiBackbone.ARTCNN_C4F32_DS && ensureArtCnn())
+        if (!isArtCnn) ensureNn()
         val subpixelTex = if (isArtCnn) {
-            runArtCnn(nn("LUMA").tex, w, h)
+            runArtCnn(nn("LUMA").tex, w, h).also { if (guard.getInt("artcnn", 0) == 1) { GLES30.glFinish(); markArtCnnOk() } }
         } else {
             for (l in nnLayers) {
                 val target = nn(l.save)
