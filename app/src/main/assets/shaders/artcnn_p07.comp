@@ -8,26 +8,26 @@ uniform sampler2D conv2d_raw;
 uniform sampler2D conv2d_5_raw;
 
 layout(std140, binding = 1) uniform Layer7Weights {
-    highp mat4 weights[72]; // for c in 0..7: for tap in 0..8: mat4
+    highp mat4 weights[36]; // for c in 0..3: for tap in 0..8: mat4
     highp vec4 bias;
 };
 
-shared mediump vec4 inp[8][18][14];
+shared mediump vec4 inp[4][18][14];
 
 void main() {
     ivec2 local_xy = ivec2(gl_LocalInvocationID.xy);
     ivec2 base = ivec2(gl_WorkGroupID.xy) * ivec2(12, 16);
     for (int y = local_xy.y; y < 18; y += 16) {
         for (int x = local_xy.x; x < 14; x += 12) {
-            ivec2 input_base = (base + ivec2(x, y) - ivec2(1, 1)) * ivec2(4, 2);
-            for (int c = 0; c < 4; c++) {
-                inp[c][y][x] = texelFetch(conv2d_5_raw, input_base + ivec2(c, 0), 0) +
-                               texelFetch(conv2d_raw, input_base + ivec2(c, 0), 0);
-            }
-            for (int c = 0; c < 4; c++) {
-                inp[c + 4][y][x] = texelFetch(conv2d_5_raw, input_base + ivec2(c, 1), 0) +
-                                   texelFetch(conv2d_raw, input_base + ivec2(c, 1), 0);
-            }
+            ivec2 input_base = (base + ivec2(x, y) - ivec2(1, 1)) * ivec2(2, 2);
+            inp[0][y][x] = texelFetch(conv2d_5_raw, input_base + ivec2(0, 0), 0) +
+                           texelFetch(conv2d_raw, input_base + ivec2(0, 0), 0);
+            inp[1][y][x] = texelFetch(conv2d_5_raw, input_base + ivec2(1, 0), 0) +
+                           texelFetch(conv2d_raw, input_base + ivec2(1, 0), 0);
+            inp[2][y][x] = texelFetch(conv2d_5_raw, input_base + ivec2(0, 1), 0) +
+                           texelFetch(conv2d_raw, input_base + ivec2(0, 1), 0);
+            inp[3][y][x] = texelFetch(conv2d_5_raw, input_base + ivec2(1, 1), 0) +
+                           texelFetch(conv2d_raw, input_base + ivec2(1, 1), 0);
         }
     }
     barrier();
@@ -37,7 +37,7 @@ void main() {
     mediump vec4 acc = bias;
 
     int w_idx = 0;
-    for (int c = 0; c < 8; c++) {
+    for (int c = 0; c < 4; c++) {
         mediump vec4 v00 = inp[c][y0][x0], v01 = inp[c][y0][x1], v02 = inp[c][y0][x2];
         mediump vec4 v10 = inp[c][y1][x0], v11 = inp[c][y1][x1], v12 = inp[c][y1][x2];
         mediump vec4 v20 = inp[c][y2][x0], v21 = inp[c][y2][x1], v22 = inp[c][y2][x2];

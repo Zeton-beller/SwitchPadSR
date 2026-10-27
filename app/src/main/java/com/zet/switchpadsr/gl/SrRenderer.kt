@@ -378,7 +378,7 @@ class SrRenderer(
         }
     }
 
-    /** Dispatches ArtCNN C4F32_DS 7 compute layers via GLES 3.10 and returns the subpixel tensor texture. */
+    /** Dispatches ArtCNN C4F16_DS 7 compute layers via GLES 3.10 and returns the subpixel tensor texture. */
     private fun runArtCnn(lumaTex: Int, w: Int, h: Int): Int {
         fun artStorageFbo(key: String, scaleW: Float, scaleH: Float): GlFbo {
             val targetW = (w * scaleW).roundToInt()
@@ -390,9 +390,9 @@ class SrRenderer(
         }
 
         // Storage buffers: conv2d (skip connection), ping, pong, and output
-        val fboConv2d = artStorageFbo("conv2d", 4.0f, 2.0f)
-        val fboPing = artStorageFbo("ping", 4.0f, 2.0f)
-        val fboPong = artStorageFbo("pong", 4.0f, 2.0f)
+        val fboConv2d = artStorageFbo("conv2d", 2.0f, 2.0f)
+        val fboPing = artStorageFbo("ping", 2.0f, 2.0f)
+        val fboPong = artStorageFbo("pong", 2.0f, 2.0f)
         val fboOut = artStorageFbo("conv2d_6", 1.0f, 1.0f)
 
         val gx = (w + 11) / 12
@@ -464,14 +464,14 @@ class SrRenderer(
     /** Two-Stage AI Hybrid Super-Resolution Pipeline: Stage 1 (AI Backbone) -> Stage 2 (Post-Processing). */
     private fun runAiHybridPipeline(s: RenderSettings, inFbo: GlFbo, tw: Int, th: Int) {
         val w = inFbo.w; val h = inFbo.h
-        val isArtCnn = (s.aiBackbone == AiBackbone.ARTCNN_C4F32_DS && ensureArtCnn())
+        val isArtCnn = (s.aiBackbone == AiBackbone.ARTCNN_C4F16_DS && ensureArtCnn())
         if (!isArtCnn) ensureNn()
 
-        // Adaptive neural grid scaling for ArtCNN C4F32_DS:
+        // Adaptive neural grid scaling for ArtCNN C4F16_DS:
         // Default mode (artCnnHighQuality = false): scales neural grid to 640x360 (360p), producing 720p
         // 2x neural reconstructed subpixel detail at full 60 FPS real-time mobile performance without thermal throttling.
         // High Quality mode (artCnnHighQuality = true): scales neural grid to 960x540 (540p), producing 1080p
-        // 2x neural reconstructed subpixel detail for 30 FPS games or maximum fidelity.
+        // 2x neural reconstructed subpixel detail for 60 FPS games or maximum fidelity.
         val maxNw = if (s.artCnnHighQuality) 960 else 640
         val maxNh = if (s.artCnnHighQuality) 540 else 360
         val (nw, nh) = if (isArtCnn && (w > maxNw || h > maxNh)) {

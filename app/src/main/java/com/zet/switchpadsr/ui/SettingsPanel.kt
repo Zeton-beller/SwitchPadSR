@@ -121,7 +121,7 @@ private fun AlgoTab(vm: AppViewModel) {
                 when (p) {
                     "ai" -> it.copy(
                         algorithm = SRAlgorithmType.AI_HYBRID,
-                        aiBackbone = AiBackbone.FSRCNNX,
+                        aiBackbone = AiBackbone.ARTCNN_C4F16_DS,
                         aiPostProcessor = AiPostProcessor.SGSR,
                         aiSharpness = 0.5f
                     )
@@ -275,8 +275,8 @@ private fun AiHybridControls(vm: AppViewModel, s: RenderSettings) {
 
         Spacer(Modifier.height(6.dp))
         Text(
-            if (s.aiBackbone == AiBackbone.ARTCNN_C4F32_DS)
-                "💡 官方 ArtCNN C4F32_DS (Compute 着色器)：4.8 万参数深度卷积，专为 Switch 底座模式画面去噪与高频感知锐化设计，强力净化压缩噪点与瑕疵。"
+            if (s.aiBackbone == AiBackbone.ARTCNN_C4F16_DS)
+                "💡 官方 ArtCNN C4F16_DS (Compute 着色器)：1.2 万参数黄金能效比，专为 Switch 底座模式画面去噪与高频感知锐化设计，计算量仅原 C4F32 的 1/4，流畅跑满 60 帧且发热极低。"
             else
                 "💡 官方 FSRCNNX 8-0-4-1 (Fragment 着色器)：经典 13 层全卷积神经网络，忠实平滑超分，保持原生质感。",
             color = TextMid, fontSize = 11.sp, lineHeight = 16.sp
@@ -288,7 +288,7 @@ private fun AiHybridControls(vm: AppViewModel, s: RenderSettings) {
             "控制亚像素神经重构的叠加强度 (0 = 纯平滑，0.5 = 推荐标准，1.0 = 极致神经细节)"
         ) { v -> vm.update { it.copy(aiSharpness = v) } }
 
-        if (s.aiBackbone == AiBackbone.ARTCNN_C4F32_DS) {
+        if (s.aiBackbone == AiBackbone.ARTCNN_C4F16_DS) {
             Spacer(Modifier.height(8.dp))
             Text("ArtCNN 运算挡位", color = TextHi, fontSize = 12.sp)
             Spacer(Modifier.height(4.dp))

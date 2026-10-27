@@ -7,8 +7,8 @@ layout(rgba16f, binding = 0) uniform writeonly mediump image2D out_image;
 uniform sampler2D LUMA_raw;
 
 layout(std140, binding = 1) uniform Layer1Weights {
-    highp vec4 weights[72];
-    highp vec4 biases[8];
+    highp vec4 weights[36];
+    highp vec4 biases[4];
 };
 
 shared mediump float inp[1][18][14];
@@ -30,13 +30,13 @@ void main() {
     mediump float v10 = inp[0][y1][x0], v11 = inp[0][y1][x1], v12 = inp[0][y1][x2];
     mediump float v20 = inp[0][y2][x0], v21 = inp[0][y2][x1], v22 = inp[0][y2][x2];
 
-    ivec2 output_base = ivec2(gl_GlobalInvocationID.xy) * ivec2(4, 2);
-    const ivec2 out_offsets[8] = ivec2[8](
-        ivec2(0, 0), ivec2(1, 0), ivec2(2, 0), ivec2(3, 0),
-        ivec2(0, 1), ivec2(1, 1), ivec2(2, 1), ivec2(3, 1)
+    ivec2 output_base = ivec2(gl_GlobalInvocationID.xy) * ivec2(2, 2);
+    const ivec2 out_offsets[4] = ivec2[4](
+        ivec2(0, 0), ivec2(1, 0),
+        ivec2(0, 1), ivec2(1, 1)
     );
 
-    for (int o = 0; o < 8; o++) {
+    for (int o = 0; o < 4; o++) {
         int wb = o * 9;
         mediump vec4 acc = biases[o];
         acc += weights[wb + 0] * v00 + weights[wb + 1] * v01 + weights[wb + 2] * v02;

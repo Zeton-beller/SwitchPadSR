@@ -14,13 +14,13 @@ def test_manifest():
     assert len(lines) == 7, f"Expected 7 layers, got {len(lines)}"
 
     expected = [
-        ("artcnn_p01.comp", "conv2d", ["LUMA"], 4.0, 2.0, "artcnn_w01.bin", 1280),
-        ("artcnn_conv.comp", "conv2d_1", ["conv2d"], 4.0, 2.0, "artcnn_w02.bin", 36992),
-        ("artcnn_conv.comp", "conv2d_2", ["conv2d_1"], 4.0, 2.0, "artcnn_w03.bin", 36992),
-        ("artcnn_conv.comp", "conv2d_3", ["conv2d_2"], 4.0, 2.0, "artcnn_w04.bin", 36992),
-        ("artcnn_conv.comp", "conv2d_4", ["conv2d_3"], 4.0, 2.0, "artcnn_w05.bin", 36992),
-        ("artcnn_conv.comp", "conv2d_5", ["conv2d_4"], 4.0, 2.0, "artcnn_w06.bin", 36992),
-        ("artcnn_p07.comp", "conv2d_6", ["conv2d", "conv2d_5"], 1.0, 1.0, "artcnn_w07.bin", 4624),
+        ("artcnn_p01.comp", "conv2d", ["LUMA"], 2.0, 2.0, "artcnn_w01.bin", 640),
+        ("artcnn_conv.comp", "conv2d_1", ["conv2d"], 2.0, 2.0, "artcnn_w02.bin", 9280),
+        ("artcnn_conv.comp", "conv2d_2", ["conv2d_1"], 2.0, 2.0, "artcnn_w03.bin", 9280),
+        ("artcnn_conv.comp", "conv2d_3", ["conv2d_2"], 2.0, 2.0, "artcnn_w04.bin", 9280),
+        ("artcnn_conv.comp", "conv2d_4", ["conv2d_3"], 2.0, 2.0, "artcnn_w05.bin", 9280),
+        ("artcnn_conv.comp", "conv2d_5", ["conv2d_4"], 2.0, 2.0, "artcnn_w06.bin", 9280),
+        ("artcnn_p07.comp", "conv2d_6", ["conv2d", "conv2d_5"], 1.0, 1.0, "artcnn_w07.bin", 2320),
     ]
 
     for line, (prog, save, binds, ws, hs, weight_bin, expected_size) in zip(lines, expected):

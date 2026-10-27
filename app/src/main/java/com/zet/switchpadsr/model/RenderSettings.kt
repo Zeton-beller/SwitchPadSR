@@ -3,11 +3,11 @@ package com.zet.switchpadsr.model
 enum class InputSourceMode { CAPTURE_CARD, LOCAL_VIDEO }
 
 enum class AiBackbone(val id: Int, val displayName: String, val tagline: String) {
-    FSRCNNX(1, "FSRCNNX 8-0-4-1", "官方 13 层全权重网络：2.8k 参数，60 FPS 原生高保真神经超分 (推荐)"),
-    ARTCNN_C4F32_DS(0, "ArtCNN C4F32_DS", "2024 旗舰动漫级：48k 参数深度去噪与自适应神经感知 (旗舰高算力)");
+    FSRCNNX(1, "FSRCNNX 8-0-4-1", "官方 13 层全权重网络：2.8k 参数，原生高保真超分"),
+    ARTCNN_C4F16_DS(0, "ArtCNN C4F16_DS", "2024 黄金能效比：1.2万参数深度去噪与自适应神经感知 (推荐 60 FPS 满帧)");
 
     companion object {
-        fun fromId(id: Int) = entries.firstOrNull { it.id == id } ?: FSRCNNX
+        fun fromId(id: Int) = entries.firstOrNull { it.id == id } ?: ARTCNN_C4F16_DS
     }
 }
 
@@ -68,7 +68,7 @@ data class RenderSettings(
     val displayMode: DisplayAspectMode = DisplayAspectMode.AMBILIGHT,
 
     // AI Pipeline
-    val aiBackbone: AiBackbone = AiBackbone.FSRCNNX,
+    val aiBackbone: AiBackbone = AiBackbone.ARTCNN_C4F16_DS,
     val aiPostProcessor: AiPostProcessor = AiPostProcessor.SGSR,
     val aiSharpness: Float = 0.5f,                // 0 .. 1 (neural recon detail)
     val fsrcnnxSharpness: Float = 0.5f,           // compatibility
