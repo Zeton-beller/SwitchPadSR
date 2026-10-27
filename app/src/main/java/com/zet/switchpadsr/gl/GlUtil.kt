@@ -57,14 +57,20 @@ object GlUtil {
         return GlProgram(p)
     }
 
-    fun createFbo(w: Int, h: Int): GlFbo {
+    /** RGBA16F render target (nearest filtered) for the FSRCNNX feature maps. Needs EXT_color_buffer_float/half_float. */
+    fun createFboF16(w: Int, h: Int): GlFbo = createFbo(w, h, true)
+
+    fun createFbo(w: Int, h: Int, half: Boolean = false): GlFbo {
         val tex = IntArray(1)
         GLES30.glGenTextures(1, tex, 0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex[0])
-        GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA8, w, h, 0,
+        if (half) GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA16F, w, h, 0,
+            GLES30.GL_RGBA, GLES30.GL_HALF_FLOAT, null)
+        else GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA8, w, h, 0,
             GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null)
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
+        val filt = if (half) GLES30.GL_NEAREST else GLES30.GL_LINEAR
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, filt)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, filt)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
         val fbo = IntArray(1)

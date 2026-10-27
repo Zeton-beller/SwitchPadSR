@@ -29,6 +29,7 @@ jobs:
           sudo apt-get install -y -qq glslang-tools python3 python3-numpy
           bash tests/test_shaders.sh
           python3 tests/test_sr_math.py
+          python3 tests/test_fsrcnnx.py
 
       - name: Install Android SDK packages
         run: |
@@ -45,20 +46,20 @@ jobs:
         run: |
           mkdir -p release_assets
           APK_FILE=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
-          cp "$APK_FILE" release_assets/SwitchPadSR-v1.3.0-release.apk
+          cp "$APK_FILE" release_assets/SwitchPadSR-v1.3.1-release.apk
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SwitchPadSR-v1.3.0-release
+          name: SwitchPadSR-v1.3.1-release
           path: release_assets/*.apk
 
       - name: Create GitHub Release with APK
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/fsrcnnx-ai-sr'
         with:
-          tag_name: v1.3.0
-          name: "SwitchPad SR v1.3.0 (FSRCNNX GLSL 实时 AI 超分辨率 + 两阶段亚像素流水线)"
+          tag_name: v1.3.1
+          name: "SwitchPad SR v1.3.1 (修复 AI 超分条纹：移植官方 FSRCNNX 全部 13 层权重)"
           body_path: RELEASE_NOTES.md
           draft: false
           prerelease: false

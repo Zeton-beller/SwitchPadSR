@@ -3,7 +3,7 @@ package com.zet.switchpadsr.model
 enum class InputSourceMode { CAPTURE_CARD, LOCAL_VIDEO }
 
 enum class SRAlgorithmType(val id: Int, val displayName: String, val tagline: String) {
-    FSRCNNX(0, "FSRCNNX 深度神经", "AI 卷积神经网络 (FSRCNNX GLSL) 2x 结构重构 + RCAS 自适应锐化"),
+    FSRCNNX(0, "FSRCNNX 深度神经", "官方 FSRCNNX x2 8-0-4-1 卷积神经网络（13 层，亮度通道）+ 任意目标分辨率重采样 + RCAS 锐化"),
     SGSR(1, "SGSR 边缘定向", "高通官方 Snapdragon GSR v1：12-tap 快速 Lanczos2 方向自适应超分"),
     FSR(2, "FSR 1.0", "AMD 官方 FidelityFX FSR 1.0：12-tap EASU 空间放大 + RCAS 自适应锐化"),
     ANIME4K(3, "Anime4K 风格", "bloc97 官方 Anime4K：Thin_HQ 双向细线收拢 + Deblur_DoG 去模糊 + Darken 墨线加深"),

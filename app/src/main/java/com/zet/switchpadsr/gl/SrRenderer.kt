@@ -82,6 +82,9 @@ class SrRenderer(
     private var inputFbo: GlFbo? = null
     private var fboA: GlFbo? = null
     private var fboB: GlFbo? = null
+    private class NnLayer(val program: String, val save: String, val binds: List<String>)
+    private val nnLayers = ArrayList<NnLayer>()
+    private val nnFbos = HashMap<String, GlFbo>()
     private var screenW = 1
     private var screenH = 1
     private var hasFrame = false
@@ -105,9 +108,18 @@ class SrRenderer(
             for ((k, f) in listOf(
                 "bicubic" to "bicubic.frag", "sgsr" to "sgsr.frag", "easu" to "fsr_easu.frag",
                 "rcas" to "fsr_rcas.frag", "anime4k" to "anime4k.frag", "crt" to "retro_crt.frag",
-                "fsrcnnx_core" to "fsrcnnx_core.frag", "fsrcnnx_up" to "fsrcnnx_up.frag",
+                "fsrcnnx_luma" to "fsrcnnx_luma.frag", "fsrcnnx_up" to "fsrcnnx_up.frag",
                 "final" to "final.frag"
             )) programs[k] = GlUtil.buildProgram(context, "fullscreen.vert", f)
+
+            // FSRCNNX: 13 generated layer programs (see tools/gen_fsrcnnx.py + fsrcnnx_manifest.txt)
+            nnLayers.clear()
+            for (line in GlUtil.readAsset(context, "shaders/fsrcnnx_manifest.txt").lines()) {
+                val parts = line.trim().split(" ")
+                if (parts.size < 3) continue
+                programs[parts[0]] = GlUtil.buildProgram(context, "fullscreen.vert", parts[0])
+                nnLayers.add(NnLayer(parts[0], parts[1], parts[2].split(",")))
+            }
 
             val t = IntArray(1)
             GLES30.glGenTextures(1, t, 0)
@@ -237,23 +249,7 @@ class SrRenderer(
         val (tw, th) = targetSize(s, inFbo.w, inFbo.h, rect)
         when (s.algorithm) {
             SRAlgorithmType.OFF -> { resultTex = inFbo.tex; resultW = inFbo.w; resultH = inFbo.h }
-            SRAlgorithmType.FSRCNNX -> {
-                fboA = ensureFbo(fboA, inFbo.w, inFbo.h)
-                fboB = ensureFbo(fboB, tw, th)
-                pass("fsrcnnx_core", fboA!!, inFbo.tex) { p ->
-                    size2(p, "u_inSize", inFbo.w, inFbo.h)
-                }
-                pass("fsrcnnx_up", fboB!!, fboA!!.tex) { p ->
-                    size2(p, "u_inSize", inFbo.w, inFbo.h)
-                    size2(p, "u_outSize", tw, th)
-                    GLES30.glUniform1f(p.loc("u_sharp"), s.fsrcnnxSharpness)
-                    GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
-                    GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, inFbo.tex)
-                    GLES30.glUniform1i(p.loc("u_raw"), 1)
-                }
-                GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
-                setResult(fboB!!)
-            }
+            SRAlgorithmType.FSRCNNX -> runFsrcnnx(s, inFbo, tw, th)
             SRAlgorithmType.BICUBIC -> {
                 fboA = ensureFbo(fboA, tw, th)
                 pass("bicubic", fboA!!, inFbo.tex) { p -> size2(p, "u_inSize", inFbo.w, inFbo.h) }
@@ -307,6 +303,54 @@ class SrRenderer(
                 setResult(fboA!!)
             }
         }
+    }
+
+    /** Official FSRCNNX_x2_8-0-4-1 (13 conv layers @ source res, RGBA16F) -> aggregation/resample to target -> RCAS. */
+    private fun runFsrcnnx(s: RenderSettings, inFbo: GlFbo, tw: Int, th: Int) {
+        val w = inFbo.w; val h = inFbo.h
+        fun nn(name: String): GlFbo {
+            val cur = nnFbos[name]
+            if (cur != null && cur.w == w && cur.h == h) return cur
+            cur?.delete()
+            return GlUtil.createFboF16(w, h).also { nnFbos[name] = it }
+        }
+        // luma
+        pass("fsrcnnx_luma", nn("LUMA"), inFbo.tex) { p -> GLES30.glUniform2i(p.loc("u_size"), w, h) }
+        for (l in nnLayers) {
+            val target = nn(l.save)
+            val prog = programs.getValue(l.program)
+            bindTarget(target.fbo, w, h)
+            GLES30.glUseProgram(prog.id)
+            GLES30.glUniform2i(prog.loc("u_size"), w, h)
+            l.binds.forEachIndexed { i, b ->
+                GLES30.glActiveTexture(GLES30.GL_TEXTURE0 + i)
+                GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, nn(b).tex)
+                GLES30.glUniform1i(prog.loc(b), i)
+            }
+            GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3)
+        }
+        fboA = ensureFbo(fboA, tw, th)
+        fboB = ensureFbo(fboB, tw, th)
+        val up = programs.getValue("fsrcnnx_up")
+        bindTarget(fboA!!.fbo, tw, th)
+        GLES30.glUseProgram(up.id)
+        GLES30.glUniform2i(up.loc("u_size"), w, h)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, nn("SUBCONV1").tex)
+        GLES30.glUniform1i(up.loc("SUBCONV1"), 0)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, inFbo.tex)
+        GLES30.glUniform1i(up.loc("u_raw"), 1)
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        // AMD RCAS sharpening (official port, reused)
+        pass("rcas", fboB!!, fboA!!.tex) { p ->
+            size2(p, "u_inSize", tw, th)
+            size2(p, "u_srcSize", w, h)
+            GLES30.glUniform1f(p.loc("u_sharp"), s.fsrcnnxSharpness)
+            GLES30.glUniform1i(p.loc("u_dering"), 1)
+        }
+        setResult(fboB!!)
     }
 
     private fun setResult(f: GlFbo) { resultTex = f.tex; resultW = f.w; resultH = f.h }
@@ -391,6 +435,7 @@ class SrRenderer(
         // GL objects belong to the previous (dead) context if it was lost: just drop references.
         programs.clear()
         inputFbo = null; fboA = null; fboB = null
+        nnFbos.clear()
         resultTex = 0
         processedVersion = -1
         frameAvailable.set(false)
