@@ -4,9 +4,12 @@ import android.content.Context
 import android.graphics.SurfaceTexture
 import android.opengl.GLES11Ext
 import android.opengl.GLES30
+import android.opengl.GLES31
 import android.opengl.GLSurfaceView
 import android.util.Log
 import android.view.Surface
+import com.zet.switchpadsr.model.AiBackbone
+import com.zet.switchpadsr.model.AiPostProcessor
 import com.zet.switchpadsr.model.DisplayAspectMode
 import com.zet.switchpadsr.model.RenderSettings
 import com.zet.switchpadsr.model.SRAlgorithmType
@@ -85,6 +88,9 @@ class SrRenderer(
     private class NnLayer(val program: String, val save: String, val binds: List<String>)
     private val nnLayers = ArrayList<NnLayer>()
     private val nnFbos = HashMap<String, GlFbo>()
+    private class ArtCnnLayer(val program: String, val save: String, val binds: List<String>, val wScale: Float, val hScale: Float)
+    private val artCnnLayers = ArrayList<ArtCnnLayer>()
+    private val artCnnFbos = HashMap<String, GlFbo>()
     private var screenW = 1
     private var screenH = 1
     private var hasFrame = false
@@ -119,6 +125,15 @@ class SrRenderer(
                 if (parts.size < 3) continue
                 programs[parts[0]] = GlUtil.buildProgram(context, "fullscreen.vert", parts[0])
                 nnLayers.add(NnLayer(parts[0], parts[1], parts[2].split(",")))
+            }
+
+            // ArtCNN C4F32_DS: 7 compute shader layers (see tools/gen_artcnn.py + artcnn_manifest.txt)
+            artCnnLayers.clear()
+            for (line in GlUtil.readAsset(context, "shaders/artcnn_manifest.txt").lines()) {
+                val parts = line.trim().split(" ")
+                if (parts.size < 5) continue
+                programs[parts[0]] = GlUtil.buildComputeProgram(context, parts[0])
+                artCnnLayers.add(ArtCnnLayer(parts[0], parts[1], parts[2].split(","), parts[3].toFloat(), parts[4].toFloat()))
             }
 
             val t = IntArray(1)
@@ -249,7 +264,7 @@ class SrRenderer(
         val (tw, th) = targetSize(s, inFbo.w, inFbo.h, rect)
         when (s.algorithm) {
             SRAlgorithmType.OFF -> { resultTex = inFbo.tex; resultW = inFbo.w; resultH = inFbo.h }
-            SRAlgorithmType.FSRCNNX -> runFsrcnnx(s, inFbo, tw, th)
+            SRAlgorithmType.AI_HYBRID -> runAiHybridPipeline(s, inFbo, tw, th)
             SRAlgorithmType.BICUBIC -> {
                 fboA = ensureFbo(fboA, tw, th)
                 pass("bicubic", fboA!!, inFbo.tex) { p -> size2(p, "u_inSize", inFbo.w, inFbo.h) }
@@ -305,52 +320,139 @@ class SrRenderer(
         }
     }
 
-    /** Official FSRCNNX_x2_8-0-4-1 (13 conv layers @ source res, RGBA16F) -> aggregation/resample to target -> RCAS. */
-    private fun runFsrcnnx(s: RenderSettings, inFbo: GlFbo, tw: Int, th: Int) {
+    /** Dispatches ArtCNN C4F32_DS 7 compute layers via GLES 3.10 and returns the subpixel tensor texture. */
+    private fun runArtCnn(lumaTex: Int, w: Int, h: Int): Int {
+        fun artFbo(name: String, scaleW: Float, scaleH: Float): GlFbo {
+            val targetW = (w * scaleW).roundToInt()
+            val targetH = (h * scaleH).roundToInt()
+            val cur = artCnnFbos[name]
+            if (cur != null && cur.w == targetW && cur.h == targetH) return cur
+            cur?.delete()
+            return GlUtil.createStorageFboF16(targetW, targetH).also { artCnnFbos[name] = it }
+        }
+
+        val gx = (w + 11) / 12
+        val gy = (h + 15) / 16
+
+        for (l in artCnnLayers) {
+            val target = artFbo(l.save, l.wScale, l.hScale)
+            val prog = programs.getValue(l.program)
+            GLES31.glUseProgram(prog.id)
+
+            // Bind output image (binding = 0)
+            GLES31.glBindImageTexture(
+                0, target.tex, 0, false, 0,
+                GLES31.GL_WRITE_ONLY, GLES30.GL_RGBA16F
+            )
+
+            // Bind input samplers
+            l.binds.forEachIndexed { i, b ->
+                val tex = if (b == "LUMA") lumaTex else artCnnFbos[b]!!.tex
+                GLES31.glActiveTexture(GLES31.GL_TEXTURE0 + i)
+                GLES31.glBindTexture(GLES31.GL_TEXTURE_2D, tex)
+                val loc = prog.loc("${b}_raw")
+                if (loc >= 0) {
+                    GLES31.glUniform1i(loc, i)
+                }
+            }
+
+            GLES31.glDispatchCompute(gx, gy, 1)
+            GLES31.glMemoryBarrier(
+                GLES31.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT or GLES31.GL_TEXTURE_FETCH_BARRIER_BIT
+            )
+        }
+
+        GLES31.glBindTexture(GLES31.GL_TEXTURE_2D, 0)
+        return artCnnFbos.getValue("conv2d_6").tex
+    }
+
+    /** Two-Stage AI Hybrid Super-Resolution Pipeline: Stage 1 (AI Backbone) -> Stage 2 (Post-Processing). */
+    private fun runAiHybridPipeline(s: RenderSettings, inFbo: GlFbo, tw: Int, th: Int) {
         val w = inFbo.w; val h = inFbo.h
         fun nn(name: String): GlFbo {
             val cur = nnFbos[name]
             if (cur != null && cur.w == w && cur.h == h) return cur
             cur?.delete()
-            return GlUtil.createFboF16(w, h).also { nnFbos[name] = it }
+            return GlUtil.createStorageFboF16(w, h).also { nnFbos[name] = it }
         }
-        // luma
+
+        // 1. Convert input to high-precision luma in nn("LUMA")
         pass("fsrcnnx_luma", nn("LUMA"), inFbo.tex) { p -> GLES30.glUniform2i(p.loc("u_size"), w, h) }
-        for (l in nnLayers) {
-            val target = nn(l.save)
-            val prog = programs.getValue(l.program)
-            bindTarget(target.fbo, w, h)
-            GLES30.glUseProgram(prog.id)
-            GLES30.glUniform2i(prog.loc("u_size"), w, h)
-            l.binds.forEachIndexed { i, b ->
-                GLES30.glActiveTexture(GLES30.GL_TEXTURE0 + i)
-                GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, nn(b).tex)
-                GLES30.glUniform1i(prog.loc(b), i)
+
+        // 2. Stage 1: AI Neural Backbone (ArtCNN C4F32_DS compute vs FSRCNNX fragment)
+        val isArtCnn = (s.aiBackbone == AiBackbone.ARTCNN_C4F32_DS)
+        val subpixelTex = if (isArtCnn) {
+            runArtCnn(nn("LUMA").tex, w, h)
+        } else {
+            for (l in nnLayers) {
+                val target = nn(l.save)
+                val prog = programs.getValue(l.program)
+                bindTarget(target.fbo, w, h)
+                GLES30.glUseProgram(prog.id)
+                GLES30.glUniform2i(prog.loc("u_size"), w, h)
+                l.binds.forEachIndexed { i, b ->
+                    GLES30.glActiveTexture(GLES30.GL_TEXTURE0 + i)
+                    GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, nn(b).tex)
+                    GLES30.glUniform1i(prog.loc(b), i)
+                }
+                GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3)
             }
-            GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3)
+            nn("SUBCONV1").tex
         }
+
+        // 3. Upscale subpixel luma + Catmull-Rom chroma to target resolution into fboA
         fboA = ensureFbo(fboA, tw, th)
-        fboB = ensureFbo(fboB, tw, th)
         val up = programs.getValue("fsrcnnx_up")
         bindTarget(fboA!!.fbo, tw, th)
         GLES30.glUseProgram(up.id)
         GLES30.glUniform2i(up.loc("u_size"), w, h)
+        GLES30.glUniform1i(up.loc("u_isArtCnn"), if (isArtCnn) 1 else 0)
+        GLES30.glUniform1f(up.loc("u_nnWeight"), s.aiSharpness)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, nn("SUBCONV1").tex)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, subpixelTex)
         GLES30.glUniform1i(up.loc("SUBCONV1"), 0)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, inFbo.tex)
         GLES30.glUniform1i(up.loc("u_raw"), 1)
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
-        // AMD RCAS sharpening (official port, reused)
-        pass("rcas", fboB!!, fboA!!.tex) { p ->
-            size2(p, "u_inSize", tw, th)
-            size2(p, "u_srcSize", w, h)
-            GLES30.glUniform1f(p.loc("u_sharp"), s.fsrcnnxSharpness)
-            GLES30.glUniform1i(p.loc("u_dering"), 1)
+
+        // 4. Stage 2: Post-Processing Filter
+        when (s.aiPostProcessor) {
+            AiPostProcessor.SGSR -> {
+                fboB = ensureFbo(fboB, tw, th)
+                pass("sgsr", fboB!!, fboA!!.tex) { p ->
+                    size2(p, "u_inSize", tw, th)
+                    GLES30.glUniform1f(p.loc("u_threshold"), s.sgsrThreshold)
+                    GLES30.glUniform1f(p.loc("u_sharp"), s.sgsrSharpness)
+                    GLES30.glUniform1i(p.loc("u_useDir"), if (s.sgsrUseDirection) 1 else 0)
+                }
+                setResult(fboB!!)
+            }
+            AiPostProcessor.RCAS -> {
+                fboB = ensureFbo(fboB, tw, th)
+                pass("rcas", fboB!!, fboA!!.tex) { p ->
+                    size2(p, "u_inSize", tw, th)
+                    size2(p, "u_srcSize", w, h)
+                    GLES30.glUniform1f(p.loc("u_sharp"), s.fsrSharpness)
+                    GLES30.glUniform1i(p.loc("u_dering"), if (s.fsrDering) 1 else 0)
+                }
+                setResult(fboB!!)
+            }
+            AiPostProcessor.ANIME4K -> {
+                fboB = ensureFbo(fboB, tw, th)
+                pass("anime4k", fboB!!, fboA!!.tex) { p ->
+                    size2(p, "u_inSize", tw, th)
+                    size2(p, "u_srcSize", w, h)
+                    GLES30.glUniform1f(p.loc("u_strength"), s.anime4kStrength)
+                    GLES30.glUniform1i(p.loc("u_mode"), s.anime4kMode)
+                }
+                setResult(fboB!!)
+            }
+            AiPostProcessor.OFF -> {
+                setResult(fboA!!)
+            }
         }
-        setResult(fboB!!)
     }
 
     private fun setResult(f: GlFbo) { resultTex = f.tex; resultW = f.w; resultH = f.h }
@@ -436,6 +538,7 @@ class SrRenderer(
         programs.clear()
         inputFbo = null; fboA = null; fboB = null
         nnFbos.clear()
+        artCnnFbos.clear()
         resultTex = 0
         processedVersion = -1
         frameAvailable.set(false)
@@ -444,6 +547,8 @@ class SrRenderer(
     /** Must be called from the GL thread (GLSurfaceView.queueEvent). */
     fun release() {
         inputFbo?.delete(); fboA?.delete(); fboB?.delete()
+        nnFbos.values.forEach { it.delete() }; nnFbos.clear()
+        artCnnFbos.values.forEach { it.delete() }; artCnnFbos.clear()
         programs.values.forEach { it.delete() }
         releaseGl()
     }

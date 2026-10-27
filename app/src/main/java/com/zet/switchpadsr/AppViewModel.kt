@@ -215,6 +215,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val d = RenderSettings()
         update {
             it.copy(
+                aiBackbone = d.aiBackbone,
+                aiPostProcessor = d.aiPostProcessor,
+                aiSharpness = d.aiSharpness,
                 fsrcnnxSharpness = d.fsrcnnxSharpness,
                 sgsrThreshold = d.sgsrThreshold, sgsrSharpness = d.sgsrSharpness, sgsrUseDirection = d.sgsrUseDirection,
                 fsrSharpness = d.fsrSharpness, fsrDering = d.fsrDering,

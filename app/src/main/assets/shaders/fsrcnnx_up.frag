@@ -2,23 +2,28 @@
 precision highp float;
 precision highp int;
 precision highp sampler2D;
-// FSRCNNX final stage. Reproduces the official "aggregation" hook (PixelShuffle of SUBCONV1 -> 2x luma),
-// then resamples that 2x luma to ANY target size with Catmull-Rom (so 1080p -> 3.2K has no integer-scale
-// constraint) and recombines it with the bicubic chroma of the source frame:  rgb = bicubic(rgb) + (Y_nn - Y_bicubic).
-// FBOs are bottom-up, mpv is top-down: the sub-row index is therefore mirrored (see tools/gen_fsrcnnx.py).
-uniform sampler2D SUBCONV1;   // RGBA16F, source resolution
+// Final reconstruction stage for AI Neural Super-Resolution (ArtCNN C4F32_DS & FSRCNNX).
+// PixelShuffles sub-pixel luma (2x) -> Catmull-Rom resamples to target resolution ->
+// recombines with bicubic source chroma -> encodes Sobel edge response in alpha for post-processors.
+uniform sampler2D SUBCONV1;   // RGBA16F, subpixel luma tensor at source resolution
 uniform sampler2D u_raw;      // source RGB
 uniform ivec2 u_size;         // source size
+uniform int u_isArtCnn;       // 1 for ArtCNN (row-major), 0 for FSRCNNX (col-major)
+uniform float u_nnWeight;     // AI detail strength
 
 in vec2 v_uv;
 out vec4 o_color;
 
-float lumaNN(ivec2 q) {                       // q in 2x grid, storage orientation
+float lumaNN(ivec2 q) {
     q = clamp(q, ivec2(0), u_size * 2 - 1);
     vec4 v = texelFetch(SUBCONV1, q >> 1, 0);
-    int i = q.x & 1;                          // image column parity
-    int j = 1 - (q.y & 1);                    // image row parity (mirrored)
-    return v[i * 2 + j];
+    int i = q.x & 1;                          // image column parity (0: left, 1: right)
+    int j = 1 - (q.y & 1);                    // image row parity (0: top, 1: bottom; FBO bottom-up)
+    if (u_isArtCnn != 0) {
+        return v[j * 2 + i];                  // ArtCNN row-major: row * 2 + col
+    } else {
+        return v[i * 2 + j];                  // FSRCNNX col-major: col * 2 + row
+    }
 }
 
 vec4 cr(float t) {
@@ -50,6 +55,23 @@ void main() {
         for (int i = 0; i < 4; i++)
             rgb += texelFetch(u_raw, clamp(b + ivec2(i - 1, j - 1), ivec2(0), u_size - 1), 0).rgb * wx[i] * wy[j];
 
-    rgb += yNN - luma(rgb);
-    o_color = vec4(clamp(rgb, 0.0, 1.0), 1.0);
+    // Blend neural reconstruction with adjustable AI weight (0.0 = pure bicubic, 1.0 = standard neural, 1.5 = enhanced)
+    rgb += (yNN - luma(rgb)) * (0.5 + u_nnWeight);
+    rgb = clamp(rgb, 0.0, 1.0);
+
+    // Compute Sobel magnitude for downstream Anime4K compatibility
+    float l00 = dot(texelFetch(u_raw, clamp(b + ivec2(-1, -1), ivec2(0), u_size - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
+    float l20 = dot(texelFetch(u_raw, clamp(b + ivec2( 1, -1), ivec2(0), u_size - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
+    float l02 = dot(texelFetch(u_raw, clamp(b + ivec2(-1,  1), ivec2(0), u_size - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
+    float l22 = dot(texelFetch(u_raw, clamp(b + ivec2( 1,  1), ivec2(0), u_size - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
+    float l01 = dot(texelFetch(u_raw, clamp(b + ivec2(-1,  0), ivec2(0), u_size - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
+    float l21 = dot(texelFetch(u_raw, clamp(b + ivec2( 1,  0), ivec2(0), u_size - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
+    float l10 = dot(texelFetch(u_raw, clamp(b + ivec2( 0, -1), ivec2(0), u_size - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
+    float l12 = dot(texelFetch(u_raw, clamp(b + ivec2( 0,  1), ivec2(0), u_size - 1), 0).rgb, vec3(0.299, 0.587, 0.114));
+    float gx = (l20 - l00) + 2.0 * (l21 - l01) + (l22 - l02);
+    float gy = (l02 - l00) + 2.0 * (l12 - l10) + (l22 - l20);
+    float edgeNorm = sqrt(gx * gx + gy * gy);
+    float sobelAlpha = clamp(pow(edgeNorm * 2.0, 0.7), 0.0, 1.0);
+
+    o_color = vec4(rgb, sobelAlpha);
 }

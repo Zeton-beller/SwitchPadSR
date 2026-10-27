@@ -2,17 +2,37 @@ package com.zet.switchpadsr.model
 
 enum class InputSourceMode { CAPTURE_CARD, LOCAL_VIDEO }
 
+enum class AiBackbone(val id: Int, val displayName: String, val tagline: String) {
+    ARTCNN_C4F32_DS(0, "ArtCNN C4F32_DS", "2024 旗舰动漫级：48k参数，深度去噪与高频锐化感知损失 (强烈推荐)"),
+    FSRCNNX(1, "FSRCNNX 8-0-4-1", "经典 13 层全权重网络：2.8k参数，保真平滑神经超分");
+
+    companion object {
+        fun fromId(id: Int) = entries.firstOrNull { it.id == id } ?: ARTCNN_C4F32_DS
+    }
+}
+
+enum class AiPostProcessor(val id: Int, val displayName: String, val tagline: String) {
+    SGSR(0, "高通 SGSR 边缘定向", "12-tap Lanczos2 方向自适应对比度强化，刀刻般锐利 (推荐)"),
+    RCAS(1, "AMD FSR RCAS 锐化", "对比度自适应微观细节锐化与反振铃控制"),
+    ANIME4K(2, "Anime4K 墨线细化", "Thin_HQ 双向细线收拢 + Darken 轮廓墨线加深"),
+    OFF(3, "仅纯 AI 原生输出", "不加任何后级边缘滤镜，保留纯净神经重构");
+
+    companion object {
+        fun fromId(id: Int) = entries.firstOrNull { it.id == id } ?: SGSR
+    }
+}
+
 enum class SRAlgorithmType(val id: Int, val displayName: String, val tagline: String) {
-    FSRCNNX(0, "FSRCNNX 深度神经", "官方 FSRCNNX x2 8-0-4-1 卷积神经网络（13 层，亮度通道）+ 任意目标分辨率重采样 + RCAS 锐化"),
-    SGSR(1, "SGSR 边缘定向", "高通官方 Snapdragon GSR v1：12-tap 快速 Lanczos2 方向自适应超分"),
-    FSR(2, "FSR 1.0", "AMD 官方 FidelityFX FSR 1.0：12-tap EASU 空间放大 + RCAS 自适应锐化"),
-    ANIME4K(3, "Anime4K 风格", "bloc97 官方 Anime4K：Thin_HQ 双向细线收拢 + Deblur_DoG 去模糊 + Darken 墨线加深"),
+    AI_HYBRID(0, "AI 神经复合超分", "双阶段：AI 深度神经网络 (ArtCNN / FSRCNNX) + 自选后处理锐化增强"),
+    SGSR(1, "经典高通 SGSR", "单阶段：12-tap 快速 Lanczos2 方向自适应超分"),
+    FSR(2, "经典 AMD FSR 1.0", "单阶段：12-tap EASU 空间放大 + RCAS 自适应锐化"),
+    ANIME4K(3, "经典 Anime4K 风格", "单阶段：Thin_HQ 双向细线收拢 + Deblur_DoG 去模糊 + Darken 墨线加深"),
     CRT(4, "复古 CRT", "扫描线 + 荧光粉栅格 + 微弧曲面，怀旧像素游戏"),
     BICUBIC(5, "双三次", "Catmull-Rom 4-tap 平滑插值，无锐化基准"),
     OFF(6, "原画直通", "不做超分，仅双线性缩放到屏幕");
 
     companion object {
-        fun fromId(id: Int) = entries.firstOrNull { it.id == id } ?: FSRCNNX
+        fun fromId(id: Int) = entries.firstOrNull { it.id == id } ?: AI_HYBRID
     }
 }
 
@@ -42,14 +62,18 @@ enum class TargetResolutionPreset(val label: String, val height: Int) {
 }
 
 data class RenderSettings(
-    val algorithm: SRAlgorithmType = SRAlgorithmType.FSRCNNX,
+    val algorithm: SRAlgorithmType = SRAlgorithmType.AI_HYBRID,
     val targetResolution: TargetResolutionPreset = TargetResolutionPreset.AUTO,
     val customScaleFactor: Float = 1.5f,          // x source height, 1.0 .. 4.0
     val displayMode: DisplayAspectMode = DisplayAspectMode.AMBILIGHT,
 
-    // FSRCNNX (AI Neural)
-    val fsrcnnxSharpness: Float = 0.5f,           // 0 .. 1
+    // AI Pipeline
+    val aiBackbone: AiBackbone = AiBackbone.ARTCNN_C4F32_DS,
+    val aiPostProcessor: AiPostProcessor = AiPostProcessor.SGSR,
+    val aiSharpness: Float = 0.5f,                // 0 .. 1 (neural recon detail)
+    val fsrcnnxSharpness: Float = 0.5f,           // compatibility
 
+    // Post-processor & standalone parameters:
     // SGSR
     val sgsrThreshold: Float = 4.0f,              // 1 .. 16
     val sgsrSharpness: Float = 1.5f,              // 1 .. 2

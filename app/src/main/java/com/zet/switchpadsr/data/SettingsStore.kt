@@ -19,6 +19,9 @@ class SettingsStore(context: Context) {
             targetResolution = TargetResolutionPreset.fromName(sp.getString("target", null)),
             customScaleFactor = sp.getFloat("customScale", d.customScaleFactor),
             displayMode = DisplayAspectMode.fromId(sp.getInt("display", d.displayMode.id)),
+            aiBackbone = AiBackbone.fromId(sp.getInt("aiBackbone", d.aiBackbone.id)),
+            aiPostProcessor = AiPostProcessor.fromId(sp.getInt("aiPostProc", d.aiPostProcessor.id)),
+            aiSharpness = sp.getFloat("aiSharp", d.aiSharpness),
             fsrcnnxSharpness = sp.getFloat("fsrcnnxSharp", d.fsrcnnxSharpness),
             sgsrThreshold = sp.getFloat("sgsrThr", d.sgsrThreshold),
             sgsrSharpness = sp.getFloat("sgsrSharp", d.sgsrSharpness),
@@ -45,6 +48,9 @@ class SettingsStore(context: Context) {
             .putString("target", s.targetResolution.name)
             .putFloat("customScale", s.customScaleFactor)
             .putInt("display", s.displayMode.id)
+            .putInt("aiBackbone", s.aiBackbone.id)
+            .putInt("aiPostProc", s.aiPostProcessor.id)
+            .putFloat("aiSharp", s.aiSharpness)
             .putFloat("fsrcnnxSharp", s.fsrcnnxSharpness)
             .putFloat("sgsrThr", s.sgsrThreshold)
             .putFloat("sgsrSharp", s.sgsrSharpness)

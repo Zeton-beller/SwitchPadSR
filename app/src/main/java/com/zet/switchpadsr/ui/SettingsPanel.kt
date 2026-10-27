@@ -108,7 +108,7 @@ private fun AlgoTab(vm: AppViewModel) {
     SectionTitle("场景一键预设")
     ChipRow(
         listOf(
-            "ai" to "🧠 AI 神经超分",
+            "ai" to "🧠 AI 神经旗舰",
             "realistic" to "🎮 3D 游戏",
             "cartoon" to "🌸 卡通动漫",
             "general" to "⚡ 通用画质",
@@ -119,8 +119,13 @@ private fun AlgoTab(vm: AppViewModel) {
         onSelect = { p ->
             vm.update {
                 when (p) {
-                    "ai" -> it.copy(algorithm = SRAlgorithmType.FSRCNNX, fsrcnnxSharpness = 0.5f)
-                    "realistic" -> it.copy(algorithm = SRAlgorithmType.SGSR, sgsrThreshold = 8f, sgsrSharpness = 1.5f, sgsrUseDirection = true)
+                    "ai" -> it.copy(
+                        algorithm = SRAlgorithmType.AI_HYBRID,
+                        aiBackbone = AiBackbone.ARTCNN_C4F32_DS,
+                        aiPostProcessor = AiPostProcessor.SGSR,
+                        aiSharpness = 0.5f
+                    )
+                    "realistic" -> it.copy(algorithm = SRAlgorithmType.SGSR, sgsrThreshold = 4f, sgsrSharpness = 1.5f, sgsrUseDirection = true)
                     "cartoon" -> it.copy(algorithm = SRAlgorithmType.ANIME4K, anime4kStrength = 1.0f, anime4kMode = 0)
                     "general" -> it.copy(algorithm = SRAlgorithmType.FSR, fsrSharpness = 0.8f, fsrDering = true)
                     "retro" -> it.copy(algorithm = SRAlgorithmType.CRT)
@@ -178,8 +183,8 @@ private fun AlgoTab(vm: AppViewModel) {
 @Composable
 private fun AlgoInlineParams(vm: AppViewModel, s: RenderSettings) {
     when (s.algorithm) {
-        SRAlgorithmType.FSRCNNX -> {
-            LabeledSlider("RCAS 细节重构锐化", s.fsrcnnxSharpness, 0f..1f, "%.2f", "0 = 纯神经平滑重构，1 = 极度清晰高频质感") { v -> vm.update { it.copy(fsrcnnxSharpness = v) } }
+        SRAlgorithmType.AI_HYBRID -> {
+            AiHybridControls(vm, s)
         }
         SRAlgorithmType.SGSR -> {
             LabeledSlider("边缘锐化倍率", s.sgsrSharpness, 1f..2f, "%.2fx", "高通原版 EdgeSharpness：强化 3D 轮廓清晰度") { v -> vm.update { it.copy(sgsrSharpness = v) } }
@@ -214,7 +219,18 @@ private fun AlgoInlineParams(vm: AppViewModel, s: RenderSettings) {
                     val d = RenderSettings()
                     vm.update {
                         when (s.algorithm) {
-                            SRAlgorithmType.FSRCNNX -> it.copy(fsrcnnxSharpness = d.fsrcnnxSharpness)
+                            SRAlgorithmType.AI_HYBRID -> it.copy(
+                                aiBackbone = d.aiBackbone,
+                                aiPostProcessor = d.aiPostProcessor,
+                                aiSharpness = d.aiSharpness,
+                                sgsrSharpness = d.sgsrSharpness,
+                                sgsrThreshold = d.sgsrThreshold,
+                                sgsrUseDirection = d.sgsrUseDirection,
+                                fsrSharpness = d.fsrSharpness,
+                                fsrDering = d.fsrDering,
+                                anime4kStrength = d.anime4kStrength,
+                                anime4kMode = d.anime4kMode
+                            )
                             SRAlgorithmType.SGSR -> it.copy(sgsrSharpness = d.sgsrSharpness, sgsrThreshold = d.sgsrThreshold, sgsrUseDirection = d.sgsrUseDirection)
                             SRAlgorithmType.FSR -> it.copy(fsrSharpness = d.fsrSharpness, fsrDering = d.fsrDering)
                             SRAlgorithmType.ANIME4K -> it.copy(anime4kStrength = d.anime4kStrength, anime4kMode = d.anime4kMode)
@@ -222,14 +238,108 @@ private fun AlgoInlineParams(vm: AppViewModel, s: RenderSettings) {
                             else -> it
                         }
                     }
-                    vm.message = "${s.algorithm.displayName} 已恢复官方默认参数"
+                    vm.message = "${s.algorithm.displayName} 已恢复官方推荐默认参数"
                 }
                 .padding(horizontal = 14.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(Icons.Rounded.Refresh, null, tint = Cyan, modifier = Modifier.size(15.dp))
             Spacer(Modifier.width(6.dp))
-            Text("重置为该算法默认参数", color = Cyan, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                if (s.algorithm == SRAlgorithmType.AI_HYBRID) "重置为 AI 推荐双阶参数 (ArtCNN + SGSR)" else "重置为该算法默认参数",
+                color = Cyan, fontSize = 12.sp, fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
+@Composable
+private fun AiHybridControls(vm: AppViewModel, s: RenderSettings) {
+    // Stage 1: AI Backbone Card
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+            .background(Color(0x1800E5FF))
+            .border(1.dp, Color(0x3300E5FF), RoundedCornerShape(12.dp))
+            .padding(12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.AutoAwesome, null, tint = Cyan, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("第 1 阶段：AI 神经网络底模", color = Cyan, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        }
+        Spacer(Modifier.height(8.dp))
+        ChipRow(
+            AiBackbone.entries.map { it to it.displayName },
+            s.aiBackbone
+        ) { b -> vm.update { it.copy(aiBackbone = b) } }
+
+        Spacer(Modifier.height(6.dp))
+        Text(
+            if (s.aiBackbone == AiBackbone.ARTCNN_C4F32_DS)
+                "💡 官方 ArtCNN C4F32_DS (Compute 着色器)：4.8 万参数深度卷积，专为 Switch 底座模式画面去噪与高频感知锐化设计，强力净化压缩噪点与瑕疵。"
+            else
+                "💡 官方 FSRCNNX 8-0-4-1 (Fragment 着色器)：经典 13 层全卷积神经网络，忠实平滑超分，保持原生质感。",
+            color = TextMid, fontSize = 11.sp, lineHeight = 16.sp
+        )
+
+        Spacer(Modifier.height(8.dp))
+        LabeledSlider(
+            "AI 神经网络特征增强强度", s.aiSharpness, 0f..1f, "%.2f",
+            "控制亚像素神经重构的叠加强度 (0 = 纯平滑，0.5 = 推荐标准，1.0 = 极致神经细节)"
+        ) { v -> vm.update { it.copy(aiSharpness = v) } }
+    }
+
+    Spacer(Modifier.height(10.dp))
+
+    // Stage 2: Post-Processing Card
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+            .background(Color(0x187C4DFF))
+            .border(1.dp, Color(0x337C4DFF), RoundedCornerShape(12.dp))
+            .padding(12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.FilterVintage, null, tint = Color(0xFFB388FF), modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("第 2 阶段：级联后处理增强算法", color = Color(0xFFB388FF), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        }
+        Spacer(Modifier.height(8.dp))
+        ChipRow(
+            AiPostProcessor.entries.map { it to it.displayName },
+            s.aiPostProcessor
+        ) { p -> vm.update { it.copy(aiPostProcessor = p) } }
+
+        Spacer(Modifier.height(6.dp))
+        Text(
+            when (s.aiPostProcessor) {
+                AiPostProcessor.SGSR -> "💡 高通官方 Snapdragon GSR：在 AI 超分画面上执行 12-tap 边缘走向自适应高频锐化，画面边缘刀刻般立体清晰。"
+                AiPostProcessor.RCAS -> "💡 AMD FidelityFX RCAS：自适应对比度微观锐化与边缘反振铃抑制，边缘通透晶莹且无白边。"
+                AiPostProcessor.ANIME4K -> "💡 bloc97 Anime4K Thin_HQ 双向细线收拢 + Darken 墨线增强：动漫赛璐璐线条特化。"
+                AiPostProcessor.OFF -> "💡 仅输出纯 AI 神经网络原生画质，不叠加快捷后级滤镜。"
+            },
+            color = TextMid, fontSize = 11.sp, lineHeight = 16.sp
+        )
+
+        Spacer(Modifier.height(8.dp))
+        when (s.aiPostProcessor) {
+            AiPostProcessor.SGSR -> {
+                LabeledSlider("SGSR 边缘锐化倍率", s.sgsrSharpness, 1f..2f, "%.2fx", "强化 3D 轮廓清晰度与对比度") { v -> vm.update { it.copy(sgsrSharpness = v) } }
+                LabeledSlider("SGSR 边缘识别阈值", s.sgsrThreshold, 1f..16f, "%.1f", "越小越敏感，越大越平缓") { v -> vm.update { it.copy(sgsrThreshold = v) } }
+                ToggleRow("SGSR 边缘方向自适应", "根据边缘走向自适应旋转拉长核函数", s.sgsrUseDirection) { v -> vm.update { it.copy(sgsrUseDirection = v) } }
+            }
+            AiPostProcessor.RCAS -> {
+                LabeledSlider("RCAS 锐化强度", s.fsrSharpness, 0f..1f, "%.2f", "0 = 关闭锐化，1 = 最锐利") { v -> vm.update { it.copy(fsrSharpness = v) } }
+                ToggleRow("去振铃保护 (Dering)", "抑制高对比度文字和光晕周边的白边反振铃", s.fsrDering) { v -> vm.update { it.copy(fsrDering = v) } }
+            }
+            AiPostProcessor.ANIME4K -> {
+                LabeledSlider("线条细化强度", s.anime4kStrength, 0.5f..2f, "%.2f", "控制 Thin_HQ 细线收拢与去模糊力度") { v -> vm.update { it.copy(anime4kStrength = v) } }
+                Text("处理模式", color = TextHi, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp, bottom = 4.dp))
+                ChipRow(
+                    listOf(0 to "A 还原去模糊", 1 to "B 还原+平坦降噪", 2 to "C 强力线条加深"),
+                    s.anime4kMode
+                ) { m -> vm.update { it.copy(anime4kMode = m) } }
+            }
+            AiPostProcessor.OFF -> {}
         }
     }
 }
