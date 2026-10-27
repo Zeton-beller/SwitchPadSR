@@ -72,6 +72,7 @@ data class RenderSettings(
     val aiPostProcessor: AiPostProcessor = AiPostProcessor.SGSR,
     val aiSharpness: Float = 0.5f,                // 0 .. 1 (neural recon detail)
     val fsrcnnxSharpness: Float = 0.5f,           // compatibility
+    val artCnnHighQuality: Boolean = false,       // false: 60 FPS 模式 (640x360), true: 极致画质 (960x540)
 
     // Post-processor & standalone parameters:
     // SGSR

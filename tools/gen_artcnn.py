@@ -103,19 +103,19 @@ for i, h in enumerate(hooks, 1):
 
 # 2. Write artcnn_p01.comp
 p01_src = """#version 310 es
-precision highp float;
-precision highp int;
+precision mediump float;
+precision mediump int;
 
 layout(local_size_x = 12, local_size_y = 16) in;
-layout(rgba16f, binding = 0) uniform writeonly highp image2D out_image;
+layout(rgba16f, binding = 0) uniform writeonly mediump image2D out_image;
 uniform sampler2D LUMA_raw;
 
 layout(std140, binding = 1) uniform Layer1Weights {
-    vec4 weights[72];
-    vec4 biases[8];
+    highp vec4 weights[72];
+    highp vec4 biases[8];
 };
 
-shared float inp[1][18][14];
+shared mediump float inp[1][18][14];
 
 void main() {
     ivec2 local_xy = ivec2(gl_LocalInvocationID.xy);
@@ -130,9 +130,9 @@ void main() {
 
     int y0 = local_xy.y, y1 = y0 + 1, y2 = y0 + 2;
     int x0 = local_xy.x, x1 = x0 + 1, x2 = x0 + 2;
-    float v00 = inp[0][y0][x0], v01 = inp[0][y0][x1], v02 = inp[0][y0][x2];
-    float v10 = inp[0][y1][x0], v11 = inp[0][y1][x1], v12 = inp[0][y1][x2];
-    float v20 = inp[0][y2][x0], v21 = inp[0][y2][x1], v22 = inp[0][y2][x2];
+    mediump float v00 = inp[0][y0][x0], v01 = inp[0][y0][x1], v02 = inp[0][y0][x2];
+    mediump float v10 = inp[0][y1][x0], v11 = inp[0][y1][x1], v12 = inp[0][y1][x2];
+    mediump float v20 = inp[0][y2][x0], v21 = inp[0][y2][x1], v22 = inp[0][y2][x2];
 
     ivec2 output_base = ivec2(gl_GlobalInvocationID.xy) * ivec2(4, 2);
     const ivec2 out_offsets[8] = ivec2[8](
@@ -142,7 +142,7 @@ void main() {
 
     for (int o = 0; o < 8; o++) {
         int wb = o * 9;
-        vec4 acc = biases[o];
+        mediump vec4 acc = biases[o];
         acc += weights[wb + 0] * v00 + weights[wb + 1] * v01 + weights[wb + 2] * v02;
         acc += weights[wb + 3] * v10 + weights[wb + 4] * v11 + weights[wb + 5] * v12;
         acc += weights[wb + 6] * v20 + weights[wb + 7] * v21 + weights[wb + 8] * v22;
@@ -155,19 +155,19 @@ with open(os.path.join(out_dir, 'artcnn_p01.comp'), 'w') as f:
 
 # 3. Write artcnn_conv.comp (shared for layers 2..6)
 conv_src = """#version 310 es
-precision highp float;
-precision highp int;
+precision mediump float;
+precision mediump int;
 
 layout(local_size_x = 12, local_size_y = 16) in;
-layout(rgba16f, binding = 0) uniform writeonly highp image2D out_image;
+layout(rgba16f, binding = 0) uniform writeonly mediump image2D out_image;
 uniform sampler2D in_tex;
 
 layout(std140, binding = 1) uniform LayerWeights {
-    mat4 weights[576]; // ordered by [c][o][tap]
-    vec4 biases[8];
+    highp mat4 weights[576]; // ordered by [c][o][tap]
+    highp vec4 biases[8];
 };
 
-shared vec4 inp[8][18][14];
+shared mediump vec4 inp[8][18][14];
 
 void main() {
     ivec2 local_xy = ivec2(gl_LocalInvocationID.xy);
@@ -183,14 +183,14 @@ void main() {
 
     int y0 = local_xy.y, y1 = y0 + 1, y2 = y0 + 2;
     int x0 = local_xy.x, x1 = x0 + 1, x2 = x0 + 2;
-    vec4 acc[8];
+    mediump vec4 acc[8];
     for (int o = 0; o < 8; o++) acc[o] = biases[o];
 
     int w_idx = 0;
     for (int c = 0; c < 8; c++) {
-        vec4 v00 = inp[c][y0][x0], v01 = inp[c][y0][x1], v02 = inp[c][y0][x2];
-        vec4 v10 = inp[c][y1][x0], v11 = inp[c][y1][x1], v12 = inp[c][y1][x2];
-        vec4 v20 = inp[c][y2][x0], v21 = inp[c][y2][x1], v22 = inp[c][y2][x2];
+        mediump vec4 v00 = inp[c][y0][x0], v01 = inp[c][y0][x1], v02 = inp[c][y0][x2];
+        mediump vec4 v10 = inp[c][y1][x0], v11 = inp[c][y1][x1], v12 = inp[c][y1][x2];
+        mediump vec4 v20 = inp[c][y2][x0], v21 = inp[c][y2][x1], v22 = inp[c][y2][x2];
         for (int o = 0; o < 8; o++) {
             acc[o] += weights[w_idx + 0] * v00 + weights[w_idx + 1] * v01 + weights[w_idx + 2] * v02;
             acc[o] += weights[w_idx + 3] * v10 + weights[w_idx + 4] * v11 + weights[w_idx + 5] * v12;
@@ -215,20 +215,20 @@ with open(os.path.join(out_dir, 'artcnn_conv.comp'), 'w') as f:
 
 # 4. Write artcnn_p07.comp
 p07_src = """#version 310 es
-precision highp float;
-precision highp int;
+precision mediump float;
+precision mediump int;
 
 layout(local_size_x = 12, local_size_y = 16) in;
-layout(rgba16f, binding = 0) uniform writeonly highp image2D out_image;
+layout(rgba16f, binding = 0) uniform writeonly mediump image2D out_image;
 uniform sampler2D conv2d_raw;
 uniform sampler2D conv2d_5_raw;
 
 layout(std140, binding = 1) uniform Layer7Weights {
-    mat4 weights[72]; // for c in 0..7: for tap in 0..8: mat4
-    vec4 bias;
+    highp mat4 weights[72]; // for c in 0..7: for tap in 0..8: mat4
+    highp vec4 bias;
 };
 
-shared vec4 inp[8][18][14];
+shared mediump vec4 inp[8][18][14];
 
 void main() {
     ivec2 local_xy = ivec2(gl_LocalInvocationID.xy);
@@ -250,13 +250,13 @@ void main() {
 
     int y0 = local_xy.y, y1 = y0 + 1, y2 = y0 + 2;
     int x0 = local_xy.x, x1 = x0 + 1, x2 = x0 + 2;
-    vec4 acc = bias;
+    mediump vec4 acc = bias;
 
     int w_idx = 0;
     for (int c = 0; c < 8; c++) {
-        vec4 v00 = inp[c][y0][x0], v01 = inp[c][y0][x1], v02 = inp[c][y0][x2];
-        vec4 v10 = inp[c][y1][x0], v11 = inp[c][y1][x1], v12 = inp[c][y1][x2];
-        vec4 v20 = inp[c][y2][x0], v21 = inp[c][y2][x1], v22 = inp[c][y2][x2];
+        mediump vec4 v00 = inp[c][y0][x0], v01 = inp[c][y0][x1], v02 = inp[c][y0][x2];
+        mediump vec4 v10 = inp[c][y1][x0], v11 = inp[c][y1][x1], v12 = inp[c][y1][x2];
+        mediump vec4 v20 = inp[c][y2][x0], v21 = inp[c][y2][x1], v22 = inp[c][y2][x2];
         acc += weights[w_idx + 0] * v00 + weights[w_idx + 1] * v01 + weights[w_idx + 2] * v02;
         acc += weights[w_idx + 3] * v10 + weights[w_idx + 4] * v11 + weights[w_idx + 5] * v12;
         acc += weights[w_idx + 6] * v20 + weights[w_idx + 7] * v21 + weights[w_idx + 8] * v22;

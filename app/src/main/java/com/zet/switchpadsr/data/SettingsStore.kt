@@ -31,6 +31,7 @@ class SettingsStore(context: Context) {
             aiPostProcessor = AiPostProcessor.fromId(sp.getInt("aiPostProc", d.aiPostProcessor.id)),
             aiSharpness = sp.getFloat("aiSharp", d.aiSharpness),
             fsrcnnxSharpness = sp.getFloat("fsrcnnxSharp", d.fsrcnnxSharpness),
+            artCnnHighQuality = sp.getBoolean("artCnnHq", d.artCnnHighQuality),
             sgsrThreshold = sp.getFloat("sgsrThr", d.sgsrThreshold),
             sgsrSharpness = sp.getFloat("sgsrSharp", d.sgsrSharpness),
             sgsrUseDirection = sp.getBoolean("sgsrDir", d.sgsrUseDirection),
@@ -60,6 +61,7 @@ class SettingsStore(context: Context) {
             .putInt("aiPostProc", s.aiPostProcessor.id)
             .putFloat("aiSharp", s.aiSharpness)
             .putFloat("fsrcnnxSharp", s.fsrcnnxSharpness)
+            .putBoolean("artCnnHq", s.artCnnHighQuality)
             .putFloat("sgsrThr", s.sgsrThreshold)
             .putFloat("sgsrSharp", s.sgsrSharpness)
             .putBoolean("sgsrDir", s.sgsrUseDirection)

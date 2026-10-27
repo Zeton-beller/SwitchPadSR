@@ -38,7 +38,7 @@ def test_manifest():
             code = sf.read()
             assert "#version 310 es" in code, f"Must be GLSL ES 3.10: {prog}"
             assert "layout(local_size_x = 12, local_size_y = 16) in;" in code, f"Workgroup size must be 12x16: {prog}"
-            assert "layout(rgba16f, binding = 0) uniform writeonly highp image2D out_image;" in code
+            assert "layout(rgba16f, binding = 0) uniform writeonly" in code and "image2D out_image;" in code
             assert "layout(std140, binding = 1) uniform" in code, f"Must use std140 UBO layout: {prog}"
 
         bin_file = os.path.join(SHADER_DIR, weight_bin)

@@ -287,6 +287,19 @@ private fun AiHybridControls(vm: AppViewModel, s: RenderSettings) {
             "AI 神经网络特征增强强度", s.aiSharpness, 0f..1f, "%.2f",
             "控制亚像素神经重构的叠加强度 (0 = 纯平滑，0.5 = 推荐标准，1.0 = 极致神经细节)"
         ) { v -> vm.update { it.copy(aiSharpness = v) } }
+
+        if (s.aiBackbone == AiBackbone.ARTCNN_C4F32_DS) {
+            Spacer(Modifier.height(8.dp))
+            Text("ArtCNN 运算挡位", color = TextHi, fontSize = 12.sp)
+            Spacer(Modifier.height(4.dp))
+            ChipRow(
+                listOf(
+                    false to "⚡ 极速流畅 (60 FPS 推荐)",
+                    true to "🎨 极致画质 (540p 深度感知)"
+                ),
+                s.artCnnHighQuality
+            ) { hq -> vm.update { it.copy(artCnnHighQuality = hq) } }
+        }
     }
 
     Spacer(Modifier.height(10.dp))

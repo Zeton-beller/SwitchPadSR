@@ -286,7 +286,10 @@ class SrRenderer(
             val measure = (++processCount % 30 == 0)
             val t0 = if (measure) System.nanoTime() else 0L
             runPipeline(s, inFbo, rect)
-            if (measure) { gpuMs = (System.nanoTime() - t0) / 1e6f }
+            if (measure) {
+                GLES30.glFinish()
+                gpuMs = (System.nanoTime() - t0) / 1e6f
+            }
             processedVersion = version
             needsProcess = false
         }
@@ -464,12 +467,15 @@ class SrRenderer(
         val isArtCnn = (s.aiBackbone == AiBackbone.ARTCNN_C4F32_DS && ensureArtCnn())
         if (!isArtCnn) ensureNn()
 
-        // Adaptive neural grid scaling:
-        // ArtCNN is a heavy 48k-param 32-channel model. For input resolutions > 540p (e.g. 720p or 1080p docked Switch),
-        // scale neural backbone execution to 540p (960x540). Its 2x neural output (1920x1080) is then resampled
-        // with Catmull-Rom and blended with full-resolution native source RGB in fsrcnnx_up.frag.
-        val (nw, nh) = if (isArtCnn && (w > 960 || h > 540)) {
-            val scale = minOf(960f / w, 540f / h)
+        // Adaptive neural grid scaling for ArtCNN C4F32_DS:
+        // Default mode (artCnnHighQuality = false): scales neural grid to 640x360 (360p), producing 720p
+        // 2x neural reconstructed subpixel detail at full 60 FPS real-time mobile performance without thermal throttling.
+        // High Quality mode (artCnnHighQuality = true): scales neural grid to 960x540 (540p), producing 1080p
+        // 2x neural reconstructed subpixel detail for 30 FPS games or maximum fidelity.
+        val maxNw = if (s.artCnnHighQuality) 960 else 640
+        val maxNh = if (s.artCnnHighQuality) 540 else 360
+        val (nw, nh) = if (isArtCnn && (w > maxNw || h > maxNh)) {
+            val scale = minOf(maxNw.toFloat() / w, maxNh.toFloat() / h)
             Pair(max(1, (w * scale).roundToInt()), max(1, (h * scale).roundToInt()))
         } else {
             Pair(w, h)
