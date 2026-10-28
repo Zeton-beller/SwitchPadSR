@@ -3,12 +3,12 @@ package com.zet.switchpadsr.model
 enum class InputSourceMode { CAPTURE_CARD, LOCAL_VIDEO }
 
 enum class AiBackbone(val id: Int, val displayName: String, val tagline: String) {
-    RAVU_LITE_AR(2, "RAVU-Lite-AR", "官方 bjin RAVU 反振铃算法：单Pass极速，彻底消除边缘白边与文字虚影 (极速 120 FPS 推荐)"),
-    FSRCNNX(1, "FSRCNNX 8-0-4-1", "官方 13 层全权重网络：2.8k 参数，原生高保真超分"),
-    ARTCNN_C4F16_DS(0, "ArtCNN C4F16_DS", "2024 黄金能效比：1.2万参数深度去噪与自适应神经感知 (推荐 60 FPS 满帧)");
+    CUNNY(0, "CuNNy 4x16 DS", "官方 CuNNy 游戏/二次元CG专属特调：锐利文字与无白边线稿重构 (推荐)"),
+    ANIME4K_CNN(2, "Anime4K v4.0.1 CNN", "官方 Anime4K 卷积神经网络：经典动漫强力线稿收拢与去模糊"),
+    FSRCNNX(1, "FSRCNNX 8-0-4-1", "官方 13 层全权重网络：2.8k 参数，原生高保真超分");
 
     companion object {
-        fun fromId(id: Int) = entries.firstOrNull { it.id == id } ?: RAVU_LITE_AR
+        fun fromId(id: Int) = entries.firstOrNull { it.id == id } ?: CUNNY
     }
 }
 
@@ -25,7 +25,7 @@ enum class AiPostProcessor(val id: Int, val displayName: String, val tagline: St
 
 enum class SRAlgorithmType(val id: Int, val displayName: String, val tagline: String) {
     SGSR(1, "经典高通 SGSR", "单阶段：12-tap 快速 Lanczos2 方向自适应超分 (极速 120 FPS 推荐)"),
-    AI_HYBRID(0, "AI 神经复合超分", "双阶段：AI 深度神经网络 (FSRCNNX / ArtCNN) + 自选后处理锐化增强"),
+    AI_HYBRID(0, "AI 神经复合超分", "双阶段：AI 深度神经网络 (CuNNy / Anime4K / FSRCNNX) + 自选后处理锐化增强"),
     FSR(2, "经典 AMD FSR 1.0", "单阶段：12-tap EASU 空间放大 + RCAS 自适应锐化"),
     ANIME4K(3, "经典 Anime4K 风格", "单阶段：Thin_HQ 双向细线收拢 + Deblur_DoG 去模糊 + Darken 墨线加深"),
     CRT(4, "复古 CRT", "扫描线 + 荧光粉栅格 + 微弧曲面，怀旧像素游戏"),
@@ -69,11 +69,10 @@ data class RenderSettings(
     val displayMode: DisplayAspectMode = DisplayAspectMode.AMBILIGHT,
 
     // AI Pipeline
-    val aiBackbone: AiBackbone = AiBackbone.RAVU_LITE_AR,
+    val aiBackbone: AiBackbone = AiBackbone.CUNNY,
     val aiPostProcessor: AiPostProcessor = AiPostProcessor.SGSR,
     val aiSharpness: Float = 0.5f,                // 0 .. 1 (neural recon detail)
     val fsrcnnxSharpness: Float = 0.5f,           // compatibility
-    val artCnnHighQuality: Boolean = false,       // false: 60 FPS 模式 (640x360), true: 极致画质 (960x540)
 
     // Post-processor & standalone parameters:
     // SGSR

@@ -2,14 +2,14 @@
 precision highp float;
 precision highp int;
 precision highp sampler2D;
-// Final reconstruction stage for AI Neural Super-Resolution (ArtCNN C4F32_DS & FSRCNNX).
+// Final reconstruction stage for AI Neural Super-Resolution (CuNNy, Anime4K & FSRCNNX).
 // PixelShuffles sub-pixel luma (2x) -> Catmull-Rom resamples to target resolution ->
 // recombines with bicubic source chroma -> encodes Sobel edge response in alpha for post-processors.
 uniform sampler2D SUBCONV1;   // RGBA16F, subpixel luma tensor at source resolution
 uniform sampler2D u_raw;      // source RGB
 uniform ivec2 u_size;         // neural grid size
 uniform ivec2 u_rawSize;      // source RGB size
-uniform int u_isArtCnn;       // 1 for ArtCNN (row-major), 0 for FSRCNNX (col-major)
+uniform int u_isArtCnn;       // 1 for row-major (CuNNy, Anime4K), 0 for col-major (FSRCNNX)
 uniform float u_nnWeight;     // AI detail strength
 
 in vec2 v_uv;
@@ -21,9 +21,9 @@ float lumaNN(ivec2 q) {
     int i = q.x & 1;                          // image column parity (0: left, 1: right)
     int j = 1 - (q.y & 1);                    // image row parity (0: top, 1: bottom; FBO bottom-up)
     if (u_isArtCnn != 0) {
-        return v[j * 2 + i];                  // ArtCNN row-major: row * 2 + col
+        return v[j * 2 + i];                  // Row-major: row * 2 + col (CuNNy / Anime4K)
     } else {
-        return v[i * 2 + j];                  // FSRCNNX col-major: col * 2 + row
+        return v[i * 2 + j];                  // Col-major: col * 2 + row (FSRCNNX)
     }
 }
 

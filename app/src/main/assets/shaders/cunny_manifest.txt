@@ -1,0 +1,6 @@
+cunny_p01.frag cunny_in LUMA 2
+cunny_p02.frag conv1 cunny_in 2
+cunny_p03.frag conv2 conv1 2
+cunny_p04.frag conv3 conv2 2
+cunny_p05.frag conv4 conv3 2
+cunny_p06.frag SUBCONV1 conv4,LUMA 1

@@ -14,12 +14,12 @@ class SettingsStore(context: Context) {
 
     fun load(): RenderSettings {
         val d = RenderSettings()
-        val v160Migrated = sp.getBoolean("migrated_v160", false)
-        if (!v160Migrated) {
+        val v170Migrated = sp.getBoolean("migrated_v170", false)
+        if (!v170Migrated) {
             sp.edit()
-                .putBoolean("migrated_v160", true)
+                .putBoolean("migrated_v170", true)
                 .putInt("algo", SRAlgorithmType.AI_HYBRID.id)
-                .putInt("aiBackbone", AiBackbone.RAVU_LITE_AR.id)
+                .putInt("aiBackbone", AiBackbone.CUNNY.id)
                 .apply()
         }
         return RenderSettings(
@@ -31,7 +31,6 @@ class SettingsStore(context: Context) {
             aiPostProcessor = AiPostProcessor.fromId(sp.getInt("aiPostProc", d.aiPostProcessor.id)),
             aiSharpness = sp.getFloat("aiSharp", d.aiSharpness),
             fsrcnnxSharpness = sp.getFloat("fsrcnnxSharp", d.fsrcnnxSharpness),
-            artCnnHighQuality = sp.getBoolean("artCnnHq", d.artCnnHighQuality),
             sgsrThreshold = sp.getFloat("sgsrThr", d.sgsrThreshold),
             sgsrSharpness = sp.getFloat("sgsrSharp", d.sgsrSharpness),
             sgsrUseDirection = sp.getBoolean("sgsrDir", d.sgsrUseDirection),
@@ -61,7 +60,6 @@ class SettingsStore(context: Context) {
             .putInt("aiPostProc", s.aiPostProcessor.id)
             .putFloat("aiSharp", s.aiSharpness)
             .putFloat("fsrcnnxSharp", s.fsrcnnxSharpness)
-            .putBoolean("artCnnHq", s.artCnnHighQuality)
             .putFloat("sgsrThr", s.sgsrThreshold)
             .putFloat("sgsrSharp", s.sgsrSharpness)
             .putBoolean("sgsrDir", s.sgsrUseDirection)

@@ -30,7 +30,7 @@ jobs:
           bash tests/test_shaders.sh
           python3 tests/test_sr_math.py
           python3 tests/test_fsrcnnx.py
-          python3 tests/test_artcnn.py
+          python3 tests/test_cunny_a4k.py
 
       - name: Install Android SDK packages
         run: |
@@ -47,20 +47,20 @@ jobs:
         run: |
           mkdir -p release_assets
           APK_FILE=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
-          cp "$APK_FILE" release_assets/SwitchPadSR-v1.6.0-release.apk
+          cp "$APK_FILE" release_assets/SwitchPadSR-v1.7.0-release.apk
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SwitchPadSR-v1.6.0-release
+          name: SwitchPadSR-v1.7.0-release
           path: release_assets/*.apk
 
       - name: Create GitHub Release with APK
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/fsrcnnx-ai-sr'
         with:
-          tag_name: v1.6.0
-          name: "SwitchPad SR v1.6.0 (方案一落地：官方 bjin RAVU-Lite-AR 单Pass极速反振铃神经网络，彻底消除白边与虚影，120FPS满帧流畅)"
+          tag_name: v1.7.0
+          name: "SwitchPad SR v1.7.0 (方案一&方案二落地：CuNNy-4x16-DS 二次元CG/游戏特调超分 + Anime4K v4.0.1 CNN 经典动漫线稿重构)"
           body_path: RELEASE_NOTES.md
           draft: false
           prerelease: false

@@ -121,7 +121,7 @@ private fun AlgoTab(vm: AppViewModel) {
                 when (p) {
                     "ai" -> it.copy(
                         algorithm = SRAlgorithmType.AI_HYBRID,
-                        aiBackbone = AiBackbone.RAVU_LITE_AR,
+                        aiBackbone = AiBackbone.CUNNY,
                         aiPostProcessor = AiPostProcessor.SGSR,
                         aiSharpness = 0.5f
                     )
@@ -246,7 +246,7 @@ private fun AlgoInlineParams(vm: AppViewModel, s: RenderSettings) {
             Icon(Icons.Rounded.Refresh, null, tint = Cyan, modifier = Modifier.size(15.dp))
             Spacer(Modifier.width(6.dp))
             Text(
-                if (s.algorithm == SRAlgorithmType.AI_HYBRID) "重置为 AI 推荐双阶参数 (ArtCNN + SGSR)" else "重置为该算法默认参数",
+                if (s.algorithm == SRAlgorithmType.AI_HYBRID) "重置为 AI 推荐双阶参数 (CuNNy + SGSR)" else "重置为该算法默认参数",
                 color = Cyan, fontSize = 12.sp, fontWeight = FontWeight.SemiBold
             )
         }
@@ -276,12 +276,12 @@ private fun AiHybridControls(vm: AppViewModel, s: RenderSettings) {
         Spacer(Modifier.height(6.dp))
         Text(
             when (s.aiBackbone) {
-                AiBackbone.RAVU_LITE_AR ->
-                    "💡 官方 bjin RAVU-Lite-AR (反振铃极速算法)：单Pass片元着色器执行，内置局部方向张量与反振铃边缘钳制，彻底消除白边光晕与文字虚影，延迟低于 1.0ms，原生满帧 60~120 FPS。"
-                AiBackbone.ARTCNN_C4F16_DS ->
-                    "💡 官方 ArtCNN C4F16_DS (Compute 着色器)：1.2 万参数黄金能效比，专为 Switch 底座模式画面去噪与高频感知锐化设计，计算量仅原 C4F32 的 1/4，流畅跑满 60 帧且发热极低。"
+                AiBackbone.CUNNY ->
+                    "💡 官方 CuNNy 4x16 DS (游戏/二次元CG专属特调)：针对掌机游戏、文字UI与二次元插画训练，边缘线条极致凝练锐利，彻底解决文字模糊且无白边光晕，满帧 60~120 FPS。"
+                AiBackbone.ANIME4K_CNN ->
+                    "💡 官方 Anime4K v4.0.1 CNN (动漫强力线稿重构)：业界经典动漫超分神经网络，强力线稿收拢与深度去模糊，视觉冲击力极强。"
                 AiBackbone.FSRCNNX ->
-                    "💡 官方 FSRCNNX 8-0-4-1 (Fragment 着色器)：经典 13 层全卷积神经网络，忠实平滑超分，保持原生质感。"
+                    "💡 官方 FSRCNNX 8-0-4-1 (通用高保真超分)：经典 13 层全卷积神经网络，忠实平滑超分，保持原生质感。"
             },
             color = TextMid, fontSize = 11.sp, lineHeight = 16.sp
         )
@@ -291,19 +291,6 @@ private fun AiHybridControls(vm: AppViewModel, s: RenderSettings) {
             "AI 神经网络特征增强强度", s.aiSharpness, 0f..1f, "%.2f",
             "控制亚像素神经重构的叠加强度 (0 = 纯平滑，0.5 = 推荐标准，1.0 = 极致神经细节)"
         ) { v -> vm.update { it.copy(aiSharpness = v) } }
-
-        if (s.aiBackbone == AiBackbone.ARTCNN_C4F16_DS) {
-            Spacer(Modifier.height(8.dp))
-            Text("ArtCNN 运算挡位", color = TextHi, fontSize = 12.sp)
-            Spacer(Modifier.height(4.dp))
-            ChipRow(
-                listOf(
-                    false to "⚡ 极速流畅 (60 FPS 推荐)",
-                    true to "🎨 极致画质 (540p 深度感知)"
-                ),
-                s.artCnnHighQuality
-            ) { hq -> vm.update { it.copy(artCnnHighQuality = hq) } }
-        }
     }
 
     Spacer(Modifier.height(10.dp))

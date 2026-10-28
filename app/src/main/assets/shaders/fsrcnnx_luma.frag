@@ -1,7 +1,7 @@
 #version 300 es
 precision highp float;
 precision highp sampler2D;
-// FSRCNNX / ArtCNN input: BT.709 luma of the source frame (the network is trained on the Y channel only).
+// AI Neural SR input: BT.709 luma of the source frame (the networks are trained on the Y channel only).
 uniform sampler2D u_tex;
 uniform ivec2 u_size;
 in vec2 v_uv;
