@@ -1,11 +1,14 @@
 package com.zet.switchpadsr.capture
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.util.Log
 import android.view.Surface
+import androidx.core.content.ContextCompat
 import com.serenegiant.usb.Size
 import com.serenegiant.usb.USBMonitor
 import com.serenegiant.usb.UVCCamera
@@ -19,7 +22,9 @@ data class CaptureInfo(
     val width: Int = 0,
     val height: Int = 0,
     val fps: Int = 0,
-    val message: String = ""
+    val message: String = "",
+    val usbSpeed: String = "",
+    val formatName: String = ""
 )
 
 /**
@@ -45,6 +50,10 @@ class UvcCapture(
     private var deviceName = ""
     private var started = false
     private var info = CaptureInfo()
+
+    var formatPreference: String = "AUTO" // "AUTO", "YUY2", "MJPEG"
+    private var currentUsbSpeed: String = ""
+    private var currentFormatName: String = ""
 
     private fun push(f: (CaptureInfo) -> CaptureInfo) {
         info = f(info)
@@ -77,7 +86,13 @@ class UvcCapture(
 
         override fun onCancel(device: UsbDevice) {
             synchronized(lock) { opening = false }
-            push { CaptureInfo(CaptureStatus.ERROR, device.deviceName, message = "USB 权限被拒绝，请点击“重新连接”并选择允许") }
+            val hasCamera = ContextCompat.checkSelfPermission(appContext, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+            val msg = if (!hasCamera) {
+                "缺少「相机」权限，Android 系统拦截了 USB 采集卡授权！请在下方点击授权或前往系统设置授予相机权限。"
+            } else {
+                "USB 权限已取消。若未见系统弹窗，请检查 HyperOS 的「后台弹出界面」权限或重新拔插采集卡。"
+            }
+            push { CaptureInfo(CaptureStatus.ERROR, device.productNameSafe(), message = msg) }
         }
 
         override fun onError(device: UsbDevice?, e: USBMonitor.USBException) {
@@ -148,10 +163,20 @@ class UvcCapture(
     private fun UsbDevice.productNameSafe(): String =
         try { productName ?: deviceName } catch (_: Throwable) { deviceName }
 
-    private fun pickSize(cam: UVCCamera): Size? {
+    private fun pickSize(cam: UVCCamera, isSuperSpeed: Boolean): Size? {
         val list: List<Size> = try { cam.supportedSizeList ?: emptyList() } catch (_: Throwable) { emptyList() }
         Log.i(TAG, "supported sizes: " + list.joinToString { "${it.width}x${it.height}@${it.fps}(fmt=${it.type})" })
         fun maxFps(s: Size): Int = (s.fpsList?.maxOrNull() ?: s.fps).coerceAtLeast(30)
+
+        // Zero-compression latency optimization inspired by Meta's facebookexperimental/usb-video:
+        // On USB 3.0 / SuperSpeed (5Gbps), uncompressed YUY2 @ 60fps eliminates all compression and decompression delays (~15ms saved).
+        // On USB 2.0 / HighSpeed (480Mbps), bandwidth constraint requires MJPEG for 60fps.
+        val preferYuy2 = when (formatPreference) {
+            "YUY2" -> true
+            "MJPEG" -> false
+            else -> isSuperSpeed // AUTO
+        }
+
         val best = list.maxByOrNull { s ->
             val fps = maxFps(s)
             val resScore = when {
@@ -159,29 +184,46 @@ class UvcCapture(
                 s.width == 1280 && s.height == 720 -> 120_000
                 else -> (s.width * s.height) / 10
             }
-            // Heavily favor MJPEG for full 60fps throughput on Switch capture cards
-            val mjpegBonus = if (s.type == UVCCamera.FRAME_FORMAT_MJPEG) 60_000 else 0
-            resScore + fps * 1_000 + mjpegBonus
+            val formatBonus = if (preferYuy2) {
+                if (s.type == UVCCamera.FRAME_FORMAT_YUYV) 75_000 else 0
+            } else {
+                if (s.type == UVCCamera.FRAME_FORMAT_MJPEG) 75_000 else 0
+            }
+            resScore + fps * 1_000 + formatBonus
         } ?: return null
         return best.clone().also { it.fps = maxFps(best) }
     }
 
     private fun openCamera(device: UsbDevice, ctrl: USBMonitor.UsbControlBlock) {
         try {
+            val rawDesc = try { ctrl.rawDescriptors } catch (_: Throwable) { null }
+            val parser = if (rawDesc != null) UsbDescriptorParser(rawDesc) else null
+            val isSuperSpeed = parser?.isSuperSpeed() == true || ctrl.usbVersion?.startsWith("3") == true
+            currentUsbSpeed = parser?.getUsbSpeedDescription() ?: if (isSuperSpeed) "USB 3.0 (5Gbps)" else "USB 2.0 (480Mbps)"
+
             val cam = UVCCamera(UVCParam())
             cam.open(ctrl)
-            var size = pickSize(cam)
+            var size = pickSize(cam, isSuperSpeed)
             var applied = false
             if (size != null) {
                 try { cam.setPreviewSize(size); applied = true } catch (e: Throwable) { Log.w(TAG, "setPreviewSize(Size) failed", e) }
             }
             if (!applied) {
-                for (fmt in intArrayOf(UVCCamera.FRAME_FORMAT_MJPEG, UVCCamera.FRAME_FORMAT_YUYV)) {
+                val fallbackFormats = if (isSuperSpeed) intArrayOf(UVCCamera.FRAME_FORMAT_YUYV, UVCCamera.FRAME_FORMAT_MJPEG)
+                                       else intArrayOf(UVCCamera.FRAME_FORMAT_MJPEG, UVCCamera.FRAME_FORMAT_YUYV)
+                for (fmt in fallbackFormats) {
                     try { cam.setPreviewSize(1920, 1080, fmt); size = Size(fmt, 1920, 1080, 30, null); applied = true; break }
                     catch (e: Throwable) { Log.w(TAG, "setPreviewSize fmt=$fmt failed", e) }
                 }
             }
             if (!applied || size == null) throw IllegalStateException("采集卡不支持可用的预览分辨率")
+
+            currentFormatName = when (size.type) {
+                UVCCamera.FRAME_FORMAT_YUYV -> "YUY2 (0编解码延迟)"
+                UVCCamera.FRAME_FORMAT_MJPEG -> "MJPEG"
+                else -> "RAW"
+            }
+
             synchronized(lock) {
                 camera = cam
                 chosen = size
@@ -189,7 +231,18 @@ class UvcCapture(
                 opening = false
                 previewing = false
             }
-            push { CaptureInfo(CaptureStatus.OPENING, device.productNameSafe(), size.width, size.height, size.fps, "已连接，等待渲染表面…") }
+            push {
+                CaptureInfo(
+                    status = CaptureStatus.OPENING,
+                    deviceName = device.productNameSafe(),
+                    width = size.width,
+                    height = size.height,
+                    fps = size.fps,
+                    message = "已连接，等待渲染表面…",
+                    usbSpeed = currentUsbSpeed,
+                    formatName = currentFormatName
+                )
+            }
             onSize(size.width, size.height)
             startPreviewIfReady()
         } catch (e: Throwable) {
@@ -208,7 +261,18 @@ class UvcCapture(
             cam.setPreviewDisplay(s)
             cam.startPreview()
             synchronized(lock) { previewing = true }
-            push { CaptureInfo(CaptureStatus.STREAMING, deviceName, size.width, size.height, size.fps, "") }
+            push {
+                CaptureInfo(
+                    status = CaptureStatus.STREAMING,
+                    deviceName = deviceName,
+                    width = size.width,
+                    height = size.height,
+                    fps = size.fps,
+                    message = "",
+                    usbSpeed = currentUsbSpeed,
+                    formatName = currentFormatName
+                )
+            }
         } catch (e: Throwable) {
             Log.e(TAG, "startPreview failed", e)
             push { CaptureInfo(CaptureStatus.ERROR, deviceName, message = "启动预览失败: ${e.message}") }
@@ -257,7 +321,11 @@ class UvcCapture(
     fun reconnect() {
         synchronized(lock) { opening = false }
         closeCamera()
-        scanExisting()
+        if (!started || monitor == null) {
+            start()
+        } else {
+            scanExisting()
+        }
     }
 
     fun stop() {

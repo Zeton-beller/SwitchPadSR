@@ -89,6 +89,18 @@ fun AppRoot(vm: AppViewModel) {
     }
     val pickVideo: () -> Unit = { videoPicker.launch(arrayOf("video/*")) }
 
+    val cameraPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            vm.message = "相机权限已获取，正在重新连接采集卡…"
+            vm.capture.reconnect()
+        } else {
+            vm.message = "未授予相机权限，Android 系统将拦截 USB 采集卡"
+        }
+    }
+    val requestCameraPermission: () -> Unit = {
+        cameraPermLauncher.launch(Manifest.permission.CAMERA)
+    }
+
     val audioPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
             vm.message = "麦克风权限已获取，采集卡音频直通已就绪"
@@ -101,11 +113,15 @@ fun AppRoot(vm: AppViewModel) {
         audioPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
     }
 
-    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+        val cameraGranted = results[Manifest.permission.CAMERA] ?: (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+        if (!cameraGranted) {
+            vm.message = "外接采集卡需要相机权限（Android 系统安全要求）"
+        }
         vm.goCapture()
     }
     val startCapture: () -> Unit = {
-        val need = listOf(Manifest.permission.RECORD_AUDIO).filter {
+        val need = listOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO).filter {
             ContextCompat.checkSelfPermission(ctx, it) != PackageManager.PERMISSION_GRANTED
         }
         if (need.isEmpty()) {
@@ -153,7 +169,9 @@ fun AppRoot(vm: AppViewModel) {
                 onPickVideo = pickVideo,
                 onSelectCapture = startCapture,
                 onSelectVideo = openVideoTab,
-                onRequestAudioPermission = requestAudioPermission
+                onRequestAudioPermission = requestAudioPermission,
+                onRequestCameraPermission = requestCameraPermission,
+                onOpenAppSettings = { vm.openAppSettings() }
             )
         }
     }

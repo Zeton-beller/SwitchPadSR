@@ -46,7 +46,8 @@ class SettingsStore(context: Context) {
             showHud = sp.getBoolean("hud", d.showHud),
             captureAudio = sp.getBoolean("capAudio", d.captureAudio),
             audioVolume = sp.getFloat("audioVol", d.audioVolume),
-            loopVideo = sp.getBoolean("loop", d.loopVideo)
+            loopVideo = sp.getBoolean("loop", d.loopVideo),
+            captureFormatPref = sp.getString("capFmt", d.captureFormatPref) ?: d.captureFormatPref
         )
     }
 
@@ -75,6 +76,7 @@ class SettingsStore(context: Context) {
             .putBoolean("capAudio", s.captureAudio)
             .putFloat("audioVol", s.audioVolume)
             .putBoolean("loop", s.loopVideo)
+            .putString("capFmt", s.captureFormatPref)
             .apply()
     }
 

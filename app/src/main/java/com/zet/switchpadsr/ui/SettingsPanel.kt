@@ -372,6 +372,25 @@ private fun ViewTab(vm: AppViewModel) {
         s.displayMode
     ) { m -> vm.update { it.copy(displayMode = m) } }
 
+    SectionTitle("USB 采集链路与格式 (低延迟优化)")
+    ChipRow(
+        listOf(
+            "AUTO" to "自动侦测 (推荐)",
+            "YUY2" to "优先 YUY2 (0编解码延迟)",
+            "MJPEG" to "优先 MJPEG (高兼容)"
+        ),
+        s.captureFormatPref
+    ) { fmt -> vm.update { it.copy(captureFormatPref = fmt) } }
+
+    val info = vm.captureInfo
+    if (info.usbSpeed.isNotEmpty() || info.formatName.isNotEmpty()) {
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "物理链路: ${info.usbSpeed.ifEmpty { "USB 2.0" }} ｜ 协商流: ${info.formatName.ifEmpty { "1080p60" }}",
+            color = Mint, fontSize = 11.sp
+        )
+    }
+
     SectionTitle("A/B 对比与细节放大")
     ToggleRow("分屏对比", "左侧：超分结果　右侧：原画直通", s.splitScreenEnabled) { v -> vm.update { it.copy(splitScreenEnabled = v) } }
     if (s.splitScreenEnabled) {
@@ -415,6 +434,7 @@ private fun AudioTab(vm: AppViewModel, onRequestAudioPermission: () -> Unit) {
         }
         vm.update { it.copy(captureAudio = v) }
     }
+    Text("💡 音频管道特性: 5ms 超低延迟切片 · Meta 环形缓冲区丢旧留新 (彻底杜绝时钟漂移与声音滞后)", color = Cyan, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
 
     LabeledSlider("直通音量", s.audioVolume, 0f..1f, "%.2f") { v -> vm.update { it.copy(audioVolume = v) } }
 

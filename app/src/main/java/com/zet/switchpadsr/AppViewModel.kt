@@ -1,16 +1,21 @@
 package com.zet.switchpadsr
 
+import android.Manifest
 import android.app.Application
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.view.Surface
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import com.zet.switchpadsr.audio.AudioStatus
 import com.zet.switchpadsr.audio.CaptureAudio
@@ -81,6 +86,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     init {
+        capture.formatPreference = settings.captureFormatPref
         renderer.updateSettings(settings)
         audio.setVolume(settings.audioVolume)
     }
@@ -190,6 +196,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun hasAudioPermission(): Boolean = audio.hasRecordPermission()
 
+    fun hasCameraPermission(): Boolean =
+        ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+
+    fun openAppSettings() {
+        try {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.fromParts("package", ctx.packageName, null)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            ctx.startActivity(intent)
+        } catch (e: Throwable) {
+            message = "打开应用设置失败: ${e.message}"
+        }
+    }
+
     fun refreshUsbHint() {
         try {
             val um = ctx.getSystemService(Context.USB_SERVICE) as UsbManager
@@ -208,6 +229,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (new.audioVolume != old.audioVolume) audio.setVolume(new.audioVolume)
         if (new.captureAudio != old.captureAudio) {
             if (new.captureAudio) { if (captureInfo.status == CaptureStatus.STREAMING) startAudioIfWanted() } else stopAudio()
+        }
+        if (new.captureFormatPref != old.captureFormatPref) {
+            capture.formatPreference = new.captureFormatPref
+            if (captureInfo.status == CaptureStatus.STREAMING) {
+                capture.reconnect()
+            }
         }
     }
 

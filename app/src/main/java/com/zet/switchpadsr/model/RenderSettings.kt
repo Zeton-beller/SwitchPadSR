@@ -104,5 +104,6 @@ data class RenderSettings(
     val showHud: Boolean = true,
     val captureAudio: Boolean = true,
     val audioVolume: Float = 1.0f,
-    val loopVideo: Boolean = true
+    val loopVideo: Boolean = true,
+    val captureFormatPref: String = "AUTO" // "AUTO", "YUY2", "MJPEG"
 )

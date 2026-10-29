@@ -41,7 +41,9 @@ fun PlayerScreen(
     onPickVideo: () -> Unit,
     onSelectCapture: () -> Unit,
     onSelectVideo: () -> Unit,
-    onRequestAudioPermission: () -> Unit
+    onRequestAudioPermission: () -> Unit,
+    onRequestCameraPermission: () -> Unit = {},
+    onOpenAppSettings: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
@@ -234,7 +236,7 @@ fun PlayerScreen(
 
         // Status cards when idle / waiting
         if (isCapture && !streaming) {
-            CaptureWaitingCard(vm, onRequestAudioPermission, Modifier.align(Alignment.Center))
+            CaptureWaitingCard(vm, onRequestAudioPermission, onRequestCameraPermission, onOpenAppSettings, Modifier.align(Alignment.Center))
         }
         if (!isCapture && !hasVideo) {
             EmptyVideoCard(onPickVideo, Modifier.align(Alignment.Center))
@@ -296,6 +298,20 @@ fun PlayerScreen(
                             else "${vm.stats.inW}×${vm.stats.inH}",
                             color = Cyan, bg = Cyan.copy(alpha = 0.15f)
                         )
+                        if (isCapture && vm.captureInfo.usbSpeed.isNotEmpty()) {
+                            Pill(
+                                vm.captureInfo.usbSpeed.substringBefore(" "),
+                                color = if (vm.captureInfo.usbSpeed.contains("3.")) Mint else Amber,
+                                bg = (if (vm.captureInfo.usbSpeed.contains("3.")) Mint else Amber).copy(alpha = 0.15f)
+                            )
+                        }
+                        if (isCapture && vm.captureInfo.formatName.isNotEmpty()) {
+                            Pill(
+                                vm.captureInfo.formatName,
+                                color = TextMid,
+                                bg = Color(0x1AFFFFFF)
+                            )
+                        }
                     }
                     if (s.showHud && (streaming || (!isCapture && hasVideo))) {
                         val st = vm.stats
@@ -513,7 +529,13 @@ private fun MagnifierFloatingDock(
 }
 
 @Composable
-private fun CaptureWaitingCard(vm: AppViewModel, onRequestAudioPermission: () -> Unit, modifier: Modifier) {
+private fun CaptureWaitingCard(
+    vm: AppViewModel,
+    onRequestAudioPermission: () -> Unit,
+    onRequestCameraPermission: () -> Unit,
+    onOpenAppSettings: () -> Unit,
+    modifier: Modifier
+) {
     val c = vm.captureInfo
     val (title, color) = when (c.status) {
         CaptureStatus.ERROR -> "连接遇到问题" to Danger
@@ -524,7 +546,7 @@ private fun CaptureWaitingCard(vm: AppViewModel, onRequestAudioPermission: () ->
     }
 
     Column(
-        modifier.width(460.dp).clip(RoundedCornerShape(26.dp)).background(Color(0xE60D1426))
+        modifier.width(480.dp).clip(RoundedCornerShape(26.dp)).background(Color(0xE60D1426))
             .border(1.dp, Color(0x28FFFFFF), RoundedCornerShape(26.dp)).padding(28.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -538,7 +560,7 @@ private fun CaptureWaitingCard(vm: AppViewModel, onRequestAudioPermission: () ->
         Text(title, color = TextHi, fontSize = 19.sp, fontWeight = FontWeight.Bold)
         if (c.message.isNotEmpty()) {
             Spacer(Modifier.height(6.dp))
-            Text(c.message, color = color, fontSize = 12.sp)
+            Text(c.message, color = color, fontSize = 12.sp, lineHeight = 18.sp)
         }
         Spacer(Modifier.height(16.dp))
         Text(
@@ -546,25 +568,47 @@ private fun CaptureWaitingCard(vm: AppViewModel, onRequestAudioPermission: () ->
             color = TextMid, fontSize = 12.sp, lineHeight = 20.sp
         )
         Spacer(Modifier.height(20.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Row(
                 Modifier.clip(RoundedCornerShape(50)).background(AccentBrush)
-                    .clickable { vm.capture.reconnect() }.padding(horizontal = 22.dp, vertical = 10.dp),
+                    .clickable { vm.capture.reconnect() }.padding(horizontal = 18.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(Icons.Rounded.Refresh, null, tint = Ink, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("重新检测", color = Ink, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text("重新检测", color = Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            }
+            if (!vm.hasCameraPermission()) {
+                Row(
+                    Modifier.clip(RoundedCornerShape(50)).background(Color(0xFFE53935))
+                        .clickable { onRequestCameraPermission() }.padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Rounded.Videocam, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("授权相机", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
             }
             if (!vm.hasAudioPermission()) {
                 Row(
                     Modifier.clip(RoundedCornerShape(50)).background(Color(0x26FFFFFF))
-                        .clickable { onRequestAudioPermission() }.padding(horizontal = 18.dp, vertical = 10.dp),
+                        .clickable { onRequestAudioPermission() }.padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(Icons.Rounded.Mic, null, tint = Cyan, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("授权音频", color = Cyan, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                }
+            }
+            if (c.status == CaptureStatus.ERROR) {
+                Row(
+                    Modifier.clip(RoundedCornerShape(50)).background(Color(0x26FFFFFF))
+                        .clickable { onOpenAppSettings() }.padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Rounded.Settings, null, tint = TextHi, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("应用设置", color = TextHi, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                 }
             }
         }

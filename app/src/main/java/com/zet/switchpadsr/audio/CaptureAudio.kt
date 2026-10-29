@@ -43,6 +43,8 @@ class CaptureAudio(
     @Volatile private var desiredRunning = false
     @Volatile private var volume = 1f
     private var workerThread: Thread? = null
+    private var playbackThread: Thread? = null
+    private var ringBuffer: AudioRingBuffer? = null
     private var audioTrack: AudioTrack? = null
     private var activeDeviceName = ""
     private var activeRate = DEFAULT_RATE
@@ -203,36 +205,63 @@ class CaptureAudio(
             return false
         }
 
-        // Low-latency streaming thread: 10ms buffer chunks (480 samples stereo = 960 shorts)
+        // Ultra-low latency decoupled streaming with Meta's Overrun-Discard RingBuffer
         val channels = if (chosenStereo) 2 else 1
-        val chunkShorts = (chosenRate * channels) / 100 // 10ms
-        workerThread = Thread({
+        val sliceShorts = (chosenRate * channels) / 200 // 5ms burst (480 shorts for 48kHz stereo)
+        val rb = AudioRingBuffer(sliceShorts * 6) // ~30ms total capacity to absorb burst jitter without drift
+        ringBuffer = rb
+
+        val recThread = Thread({
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
-            val buf = ShortArray(chunkShorts)
+            val inBuf = ShortArray(sliceShorts)
             try {
                 while (running) {
-                    val n = rec.read(buf, 0, buf.size)
+                    val n = rec.read(inBuf, 0, inBuf.size)
                     if (n > 0) {
-                        tr.write(buf, 0, n)
+                        rb.write(inBuf, 0, n)
                     } else if (n < 0) {
                         Log.w(TAG, "AudioRecord read error code $n")
                         break
                     }
                 }
             } catch (e: Throwable) {
-                Log.e(TAG, "Audio loop error", e)
+                Log.e(TAG, "Audio rec loop error", e)
             } finally {
                 try { rec.stop() } catch (_: Throwable) {}
                 try { rec.release() } catch (_: Throwable) {}
-                try { tr.stop() } catch (_: Throwable) {}
-                try { tr.release() } catch (_: Throwable) {}
             }
-        }, "switchpad-uac-audio").also {
+        }, "switchpad-uac-rec").also {
             it.priority = Thread.MAX_PRIORITY
             it.start()
         }
 
-        Log.i(TAG, "Audio passthrough ACTIVE: $activeDeviceName @ ${activeRate}Hz (Stereo=$activeStereo)")
+        val playThread = Thread({
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
+            val outBuf = ShortArray(sliceShorts)
+            try {
+                while (running) {
+                    val n = rb.read(outBuf, 0, outBuf.size)
+                    if (n > 0) {
+                        tr.write(outBuf, 0, n, AudioTrack.WRITE_BLOCKING)
+                    } else {
+                        try { Thread.sleep(2) } catch (_: InterruptedException) { break }
+                    }
+                }
+            } catch (e: Throwable) {
+                Log.e(TAG, "Audio play loop error", e)
+            } finally {
+                try { tr.stop() } catch (_: Throwable) {}
+                try { tr.release() } catch (_: Throwable) {}
+            }
+        }, "switchpad-uac-play").also {
+            it.priority = Thread.MAX_PRIORITY
+            it.start()
+        }
+
+        workerThread = recThread
+        playbackThread = playThread
+
+        Log.i(TAG, "Audio passthrough ACTIVE: $activeDeviceName @ ${activeRate}Hz (Stereo=$activeStereo) with RingBuffer 5ms burst")
         notifyStatus(AudioStatus(isRunning = true, deviceName = activeDeviceName, sampleRate = activeRate, isStereo = activeStereo, hasPermission = true))
         return true
     }
@@ -244,8 +273,12 @@ class CaptureAudio(
 
     private fun stopInternal(err: String?) {
         running = false
-        try { workerThread?.join(300) } catch (_: Throwable) {}
+        try { workerThread?.join(200) } catch (_: Throwable) {}
+        try { playbackThread?.join(200) } catch (_: Throwable) {}
         workerThread = null
+        playbackThread = null
+        ringBuffer?.clear()
+        ringBuffer = null
         audioTrack = null
         notifyStatus(AudioStatus(isRunning = false, hasPermission = hasRecordPermission(), errorMessage = err))
     }
